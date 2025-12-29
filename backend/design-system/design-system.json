@@ -1,0 +1,13 @@
+{
+  "name": "CompanyDS",
+  "tokensVersion": "2025.12",
+  "rules": {
+    "buttonTextHeuristic": [
+      "\ud655\uc778",
+      "\uc800\uc7a5",
+      "\ucde8\uc18c",
+      "\ub85c\uadf8\uc778",
+      "\ub2e4\uc6b4\ub85c\ub4dc"
+    ]
+  }
+}

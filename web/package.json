@@ -1,0 +1,13 @@
+{
+  "name": "a2ui-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev -p 3001",
+    "build": "nuxt build",
+    "preview": "nuxt preview -p 3001"
+  },
+  "dependencies": {
+    "nuxt": "^3.13.0"
+  }
+}

@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  password String
+  role String @default("ADMIN")
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id String @id @default(cuid())
+  name String
+  slug String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  imports FigmaImport[]
+  artifacts CodeArtifact[]
+  jobs Job[]
+}
+
+model FigmaImport {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields:[projectId], references:[id], onDelete: Cascade)
+  fileKey String
+  rawJson Json
+  a2uiSpec Json?
+  createdAt DateTime @default(now())
+}
+
+model CodeArtifact {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields:[projectId], references:[id], onDelete: Cascade)
+  target String
+  a2uiSpec Json
+  outputZip String
+  createdAt DateTime @default(now())
+}
+
+model Job {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields:[projectId], references:[id], onDelete: Cascade)
+  type String
+  status String @default("QUEUED")
+  input Json
+  output Json?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

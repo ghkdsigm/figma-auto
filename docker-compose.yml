@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: company
+      POSTGRES_PASSWORD: company_pw
+      POSTGRES_DB: a2ui_codegen
+    ports: ["15432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U company -d a2ui_codegen"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports: ["16379:6379"]
+
+  toolserver:
+    build: { context: ./toolserver }
+    environment:
+      FIGMA_TOKEN: ${FIGMA_TOKEN}
+      FIGMA_API_BASE: ${FIGMA_API_BASE:-https://api.figma.com}
+      PORT: 4010
+    ports: ["4010:4010"]
+
+  api:
+    build: { context: ./backend }
+    env_file: [./.env]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      toolserver: { condition: service_started }
+    ports: ["3000:3000"]
+    volumes: ["artifacts:/data/artifacts"]
+
+  web:
+    build: { context: ./web }
+    environment:
+      NUXT_PUBLIC_API_BASE: http://localhost:3000
+      PORT: 3001
+      HOST: 0.0.0.0
+      NITRO_PORT: 3001
+      NITRO_HOST: 0.0.0.0
+    depends_on: [api]
+    ports: ["3001:3001"]
+
+
+volumes:
+  pgdata:
+  artifacts:

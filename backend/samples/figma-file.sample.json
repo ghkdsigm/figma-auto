@@ -1,0 +1,42 @@
+{
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "1:1",
+        "type": "CANVAS",
+        "children": [
+          {
+            "id": "2:1",
+            "type": "FRAME",
+            "name": "Main",
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 12,
+            "paddingTop": 24,
+            "paddingRight": 24,
+            "paddingBottom": 24,
+            "paddingLeft": 24,
+            "children": [
+              {
+                "id": "t1",
+                "type": "TEXT",
+                "characters": "\uc608\uc57d\ud558\uae30"
+              },
+              {
+                "id": "t2",
+                "type": "TEXT",
+                "characters": "\ub0a0\uc9dc\uc640 \uc2dc\uac04\uc744 \uc120\ud0dd\ud558\uc138\uc694"
+              },
+              {
+                "id": "t3",
+                "type": "TEXT",
+                "characters": "\ud655\uc778"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
