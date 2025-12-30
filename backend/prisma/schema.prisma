@@ -22,6 +22,7 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   imports FigmaImport[]
+  maps DsMap[]
   artifacts CodeArtifact[]
   jobs Job[]
 }
@@ -34,7 +35,22 @@ model FigmaImport {
   rawJson Json
   a2uiSpec Json?
   createdAt DateTime @default(now())
+
+  maps DsMap[]
 }
+
+
+model DsMap {
+  id String @id @default(cuid())
+  projectId String
+  project Project @relation(fields:[projectId], references:[id], onDelete: Cascade)
+  importId String
+  import FigmaImport @relation(fields:[importId], references:[id], onDelete: Cascade)
+  policy String
+  dsSpec Json
+  createdAt DateTime @default(now())
+}
+
 
 model CodeArtifact {
   id String @id @default(cuid())
@@ -42,6 +58,8 @@ model CodeArtifact {
   project Project @relation(fields:[projectId], references:[id], onDelete: Cascade)
   target String
   a2uiSpec Json
+  dsSpec Json
+  mappingPolicy String
   outputZip String
   createdAt DateTime @default(now())
 }

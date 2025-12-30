@@ -6,8 +6,9 @@ import { JobsModule } from "./jobs/jobs.module";
 import { FigmaModule } from "./figma/figma.module";
 import { A2uiModule } from "./a2ui/a2ui.module";
 import { CodegenModule } from "./codegen/codegen.module";
+import { DsMappingModule } from "./ds-mapping/ds-mapping.module";
 
 @Module({
-  imports:[PrismaModule,AuthModule,ProjectsModule,JobsModule,FigmaModule,A2uiModule,CodegenModule]
+  imports:[PrismaModule,AuthModule,ProjectsModule,JobsModule,FigmaModule,A2uiModule,DsMappingModule,CodegenModule]
 })
 export class AppModule {}

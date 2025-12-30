@@ -1,0 +1,291 @@
+import { Injectable } from "@nestjs/common";
+import * as fs from "fs";
+import * as path from "path";
+import { A2UIRoot, A2UINode, A2UIColor, A2UIDiagnostic } from "../a2ui/spec";
+import { DSRoot, DSNode } from "./spec";
+
+type Policy = "STRICT" | "TOLERANT" | "MIXED";
+
+type DesignSystem = {
+  name: string;
+  tokensVersion: string;
+  tokens?: {
+    spacing?: Record<string, number>;
+    colors?: Record<string, { r: number; g: number; b: number }>;
+    typography?: Record<string, { minSize: number; componentVariant: string }>;
+  };
+  components?: {
+    BaseButton?: { intents: string[]; sizes: string[] };
+    Typography?: { variants: string[] };
+    UnsafeBox?: {};
+  };
+};
+
+function loadDesignSystem(): DesignSystem {
+  const p = path.join(process.cwd(), "design-system", "design-system.json");
+  return JSON.parse(fs.readFileSync(p, "utf-8"));
+}
+
+function rgbDistance(a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) {
+  const dr = a.r - b.r;
+  const dg = a.g - b.g;
+  const db = a.b - b.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+function a2ToRgb255(c: A2UIColor) {
+  return { r: Math.round(c.r * 255), g: Math.round(c.g * 255), b: Math.round(c.b * 255) };
+}
+
+function pickNearestSpacing(px: number, spacing: Record<string, number>) {
+  const entries = Object.entries(spacing);
+  if (!entries.length) return { token: undefined as string | undefined, distance: Infinity };
+  let best = entries[0];
+  let bestDist = Math.abs(px - best[1]);
+  for (const e of entries.slice(1)) {
+    const d = Math.abs(px - e[1]);
+    if (d < bestDist) {
+      best = e;
+      bestDist = d;
+    }
+  }
+  return { token: best[0], distance: bestDist };
+}
+
+function pickNearestColorToken(c: A2UIColor, colors: Record<string, { r: number; g: number; b: number }>) {
+  const entries = Object.entries(colors);
+  if (!entries.length) return { token: undefined as string | undefined, distance: Infinity };
+  const rgb = a2ToRgb255(c);
+  let best = entries[0];
+  let bestDist = rgbDistance(rgb, best[1]);
+  for (const e of entries.slice(1)) {
+    const d = rgbDistance(rgb, e[1]);
+    if (d < bestDist) {
+      best = e;
+      bestDist = d;
+    }
+  }
+  return { token: best[0], distance: bestDist };
+}
+
+function pushDiag(list: A2UIDiagnostic[], diag: A2UIDiagnostic) {
+  list.push(diag);
+}
+
+function mapTextVariant(fontSize: number, ds: DesignSystem) {
+  const rules = ds.tokens?.typography ? Object.entries(ds.tokens.typography) : [];
+  if (!rules.length) return "body";
+  const sorted = rules.sort((a, b) => b[1].minSize - a[1].minSize);
+  for (const [, v] of sorted) {
+    if (fontSize >= v.minSize) return v.componentVariant;
+  }
+  return sorted[sorted.length - 1]?.[1].componentVariant ?? "body";
+}
+
+@Injectable()
+export class DsMappingService {
+  private ds = loadDesignSystem();
+
+  map(root: A2UIRoot, policy: Policy = "TOLERANT"): DSRoot {
+    const diagnostics: A2UIDiagnostic[] = [...(root.diagnostics || [])];
+
+    const tree = this.mapNode(root.tree, policy, diagnostics);
+
+    const out: DSRoot = {
+      version: "0.1",
+      meta: { generatedAt: new Date().toISOString(), policy },
+      tree,
+      diagnostics
+    };
+
+    if (policy === "STRICT") {
+      const hasError = diagnostics.some((d) => d.severity === "error");
+      if (hasError) {
+        const err = new Error("Design System mapping failed in STRICT mode");
+        (err as any).diagnostics = diagnostics;
+        throw err;
+      }
+    }
+
+    return out;
+  }
+
+  private mapNode(n: A2UINode, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    if (!n) {
+      return { id: "nil", kind: "element", name: "div", children: [] };
+    }
+
+    if (n.type === "button") return this.mapButton(n, policy, diagnostics);
+    if (n.type === "text") return this.mapText(n, policy, diagnostics);
+    if (n.type === "input") return this.mapInput(n, policy, diagnostics);
+    if (n.type === "image") return this.mapImage(n, policy, diagnostics);
+    if (n.type === "frame") return this.mapFrame(n, policy, diagnostics);
+
+    return this.unsafeFallback(n, policy, diagnostics, "UNSUPPORTED_NODE");
+  }
+
+  private mapButton(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    const intent = n.intent || "primary";
+    const size = n.size || "md";
+
+    if (!["primary", "secondary", "danger"].includes(intent)) {
+      pushDiag(diagnostics, {
+        severity: policy === "STRICT" ? "error" : "warn",
+        code: "DS_BUTTON_INTENT_UNKNOWN",
+        message: `알 수 없는 버튼 intent: ${intent}`,
+        nodeId: n.id,
+        ref: n.ref,
+        suggestion: { action: "map_to_nearest", detail: "primary로 폴백" }
+      });
+    }
+
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "component",
+      name: "BaseButton",
+      props: { intent: ["primary", "secondary", "danger"].includes(intent) ? intent : "primary", size, label: n.label }
+    };
+  }
+
+  private mapText(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    const fontSize = Number(n.style?.typography?.fontSize ?? 16);
+    const variant = mapTextVariant(fontSize, this.ds);
+
+    const props: Record<string, any> = { variant, text: n.text };
+
+    const fill = n.style?.fills?.[0]?.color;
+    if (fill && this.ds.tokens?.colors) {
+      const { token, distance } = pickNearestColorToken(fill, this.ds.tokens.colors);
+      if (token) {
+        props.colorToken = token;
+        if (distance > 18) {
+          pushDiag(diagnostics, {
+            severity: "warn",
+            code: "DS_COLOR_APPROX",
+            message: `텍스트 색상이 토큰과 유사 매칭됨: ${token} (distance=${distance.toFixed(1)})`,
+            nodeId: n.id,
+            ref: n.ref,
+            suggestion: { action: "review_token", detail: "디자인 가이드 색상 토큰으로 정리 필요" }
+          });
+        }
+      }
+    }
+
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "component",
+      name: "Typography",
+      props
+    };
+  }
+
+  private mapInput(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "component",
+      name: "BaseInput",
+      props: { placeholder: n.placeholder || "" }
+    };
+  }
+
+  private mapImage(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "element",
+      name: "img",
+      props: { alt: n.name || "", src: "" },
+      classes: ["rounded"]
+    };
+  }
+
+  private mapFrame(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    const classes: string[] = [];
+
+    const layout = n.layout;
+    if (layout?.display === "flex") {
+      classes.push("flex");
+      if (layout.direction === "row") classes.push("flex-row");
+      if (layout.direction === "column") classes.push("flex-col");
+      if (layout.justify) {
+        const m: any = { start: "justify-start", center: "justify-center", end: "justify-end", between: "justify-between" };
+        if (m[layout.justify]) classes.push(m[layout.justify]);
+      }
+      if (layout.align) {
+        const m: any = { start: "items-start", center: "items-center", end: "items-end", stretch: "items-stretch" };
+        if (m[layout.align]) classes.push(m[layout.align]);
+      }
+      if (typeof layout.gap === "number") {
+        const spacing = this.ds.tokens?.spacing || {};
+        const { token, distance } = pickNearestSpacing(layout.gap, spacing);
+        if (token) {
+          classes.push(`gap-${token}`);
+          if (distance > 2) {
+            pushDiag(diagnostics, {
+              severity: "warn",
+              code: "DS_GAP_APPROX",
+              message: `gap(${layout.gap}px)이 spacing 토큰(${token}=${spacing[token]}px)으로 근사 매핑됨`,
+              nodeId: n.id,
+              ref: n.ref,
+              suggestion: { action: "review_spacing", detail: "디자인 토큰 정리 또는 gap 조정" }
+            });
+          }
+        } else {
+          classes.push(`gap-[${layout.gap}px]`);
+        }
+      }
+      if (Array.isArray(layout.padding) && layout.padding.some((v: number) => v)) {
+        const spacing = this.ds.tokens?.spacing || {};
+        const [pt, pr, pb, pl] = layout.padding.map((v: any) => Number(v || 0));
+        const p = [pt, pr, pb, pl];
+        const tokens = p.map((v) => pickNearestSpacing(v, spacing).token);
+        const allSame = tokens.every((t) => t && t === tokens[0]);
+        if (allSame && tokens[0]) {
+          classes.push(`p-${tokens[0]}`);
+        } else {
+          const cls: string[] = [];
+          const names = ["pt", "pr", "pb", "pl"] as const;
+          for (let i = 0; i < 4; i++) {
+            const v = p[i];
+            if (!v) continue;
+            const { token } = pickNearestSpacing(v, spacing);
+            cls.push(token ? `${names[i]}-${token}` : `${names[i]}-[${v}px]`);
+          }
+          classes.push(...cls);
+        }
+      }
+    }
+
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "element",
+      name: "div",
+      classes,
+      children: (n.children || []).map((c: any) => this.mapNode(c, policy, diagnostics))
+    };
+  }
+
+  private unsafeFallback(n: any, policy: Policy, diagnostics: A2UIDiagnostic[], code: string): DSNode {
+    pushDiag(diagnostics, {
+      severity: policy === "STRICT" ? "error" : "warn",
+      code,
+      message: `Design System 매핑 불가: ${n.type}`,
+      nodeId: n.id,
+      ref: n.ref,
+      suggestion: { action: "fallback_unsafe_box", detail: "UnsafeBox로 폴백하여 코드 생성은 유지" }
+    });
+
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "component",
+      name: "UnsafeBox",
+      props: { originalType: n.type, debugName: n.name || "" },
+      children: n.children ? n.children.map((c: any) => this.mapNode(c, policy, diagnostics)) : []
+    };
+  }
+}

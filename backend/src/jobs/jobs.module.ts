@@ -7,9 +7,10 @@ import { ProjectsModule } from "../projects/projects.module";
 import { FigmaModule } from "../figma/figma.module";
 import { A2uiModule } from "../a2ui/a2ui.module";
 import { CodegenModule } from "../codegen/codegen.module";
+import { DsMappingModule } from "../ds-mapping/ds-mapping.module";
 
 @Module({
-  imports:[AuthModule, ProjectsModule, FigmaModule, A2uiModule, CodegenModule],
+  imports:[AuthModule, ProjectsModule, FigmaModule, A2uiModule, DsMappingModule, CodegenModule],
   providers:[JobsService],
   controllers:[JobsController]
 })

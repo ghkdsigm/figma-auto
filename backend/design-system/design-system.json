@@ -1,13 +1,109 @@
 {
   "name": "CompanyDS",
   "tokensVersion": "2025.12",
+  "tokens": {
+    "spacing": {
+      "0": 0,
+      "1": 4,
+      "2": 8,
+      "3": 12,
+      "4": 16,
+      "5": 20,
+      "6": 24,
+      "8": 32,
+      "10": 40,
+      "12": 48
+    },
+    "colors": {
+      "fg": {
+        "r": 15,
+        "g": 23,
+        "b": 42
+      },
+      "muted": {
+        "r": 71,
+        "g": 85,
+        "b": 105
+      },
+      "primary": {
+        "r": 37,
+        "g": 99,
+        "b": 235
+      },
+      "danger": {
+        "r": 220,
+        "g": 38,
+        "b": 38
+      },
+      "border": {
+        "r": 226,
+        "g": 232,
+        "b": 240
+      },
+      "surface": {
+        "r": 255,
+        "g": 255,
+        "b": 255
+      }
+    },
+    "typography": {
+      "h1": {
+        "minSize": 28,
+        "componentVariant": "h1"
+      },
+      "h2": {
+        "minSize": 22,
+        "componentVariant": "h2"
+      },
+      "h3": {
+        "minSize": 18,
+        "componentVariant": "h3"
+      },
+      "body": {
+        "minSize": 14,
+        "componentVariant": "body"
+      },
+      "caption": {
+        "minSize": 0,
+        "componentVariant": "caption"
+      }
+    }
+  },
+  "components": {
+    "BaseButton": {
+      "intents": [
+        "primary",
+        "secondary",
+        "danger"
+      ],
+      "sizes": [
+        "sm",
+        "md",
+        "lg"
+      ]
+    },
+    "Typography": {
+      "variants": [
+        "h1",
+        "h2",
+        "h3",
+        "body",
+        "caption"
+      ]
+    },
+    "BaseInput": {},
+    "UnsafeBox": {}
+  },
   "rules": {
     "buttonTextHeuristic": [
-      "\ud655\uc778",
-      "\uc800\uc7a5",
-      "\ucde8\uc18c",
-      "\ub85c\uadf8\uc778",
-      "\ub2e4\uc6b4\ub85c\ub4dc"
+      "확인",
+      "저장",
+      "취소",
+      "로그인",
+      "다운로드",
+      "삭제",
+      "추가",
+      "등록"
     ]
   }
 }

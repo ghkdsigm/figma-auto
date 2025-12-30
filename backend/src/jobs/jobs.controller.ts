@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../auth/guards";
 import { JobsService } from "./jobs.service";
@@ -23,7 +23,18 @@ export class JobsController {
 
   @Post("generate")
   generate(@Param("projectId") projectId: string, @Body() body: any) {
-    return this.jobs.enqueueGenerate(projectId, body.target || "nuxt");
+    const policy = (body.policy || "TOLERANT") as any;
+    return this.jobs.enqueueGenerate(projectId, body.target || "nuxt", policy);
+  }
+
+  @Get("imports/latest")
+  latestImport(@Param("projectId") projectId: string) {
+    return this.jobs.getLatestImport(projectId);
+  }
+
+  @Get("maps/latest")
+  latestMap(@Param("projectId") projectId: string, @Query("policy") policy?: string) {
+    return this.jobs.getLatestMap(projectId, (policy as any) || "TOLERANT");
   }
 
   @Get("artifacts")
