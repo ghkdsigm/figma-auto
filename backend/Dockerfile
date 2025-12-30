@@ -21,8 +21,10 @@ COPY samples ./samples
 RUN npm run build
 
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
+RUN sed -i 's/\r$//' ./docker-entrypoint.sh && chmod +x ./docker-entrypoint.sh
 RUN chmod +x ./docker-entrypoint.sh
 
 EXPOSE 3000
 
+ENTRYPOINT []
 CMD ["./docker-entrypoint.sh"]

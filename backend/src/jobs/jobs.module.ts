@@ -8,10 +8,11 @@ import { FigmaModule } from "../figma/figma.module";
 import { A2uiModule } from "../a2ui/a2ui.module";
 import { CodegenModule } from "../codegen/codegen.module";
 import { DsMappingModule } from "../ds-mapping/ds-mapping.module";
+import { JobsWorker } from "./jobs.worker";
 
 @Module({
   imports:[AuthModule, ProjectsModule, FigmaModule, A2uiModule, DsMappingModule, CodegenModule],
-  providers:[JobsService],
+  providers:[JobsService, JobsWorker],
   controllers:[JobsController]
 })
 export class JobsModule implements OnModuleInit {

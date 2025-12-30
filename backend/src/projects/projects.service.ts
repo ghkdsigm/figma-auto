@@ -9,5 +9,18 @@ function slugify(s: string) {
 export class ProjectsService {
   constructor(private readonly prisma: PrismaService) {}
   list() { return this.prisma.project.findMany({ orderBy:{ createdAt:"desc" } }); }
-  create(name: string, slug?: string) { return this.prisma.project.create({ data:{ name, slug: slugify(slug || name) } }); }
+  
+  async create(name: string, slug?: string) {
+    let baseSlug = slugify(slug || name);
+    let finalSlug = baseSlug;
+    let counter = 1;
+
+    // slug가 이미 존재하는지 확인하고, 존재하면 숫자를 추가
+    while (await this.prisma.project.findUnique({ where: { slug: finalSlug } })) {
+      counter++;
+      finalSlug = `${baseSlug}-${counter}`;
+    }
+
+    return this.prisma.project.create({ data:{ name, slug: finalSlug } });
+  }
 }

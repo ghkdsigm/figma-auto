@@ -1,8 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import * as fs from "fs";
 import * as path from "path";
-import os from "os";
-import archiver from "archiver";
+import * as os from "os";
+import archiver = require("archiver");
 import { v4 as uuid } from "uuid";
 import type { DSRoot, DSNode } from "../ds-mapping/spec";
 

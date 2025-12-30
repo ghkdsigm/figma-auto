@@ -193,28 +193,30 @@ FIGMA_TOKEN=xxxxxxxxxxxxxxxx
 
 ```
 figma-auto/
-├─ api/                     # NestJS Backend
+├─ backend/                 # NestJS Backend
 │  ├─ src/
 │  │  ├─ auth/              # 인증 / 로그인
 │  │  ├─ projects/          # 프로젝트 관리
-│  │  ├─ figma/             # Figma Import
-│  │  ├─ a2ui/              # A2UI IR 정의
-│  │  ├─ codegen/           # 코드 생성 로직
-│  │  ├─ jobs/              # 비동기 작업 처리
-│  │  └─ mcp/               # (확장 대비) MCP 인터페이스
-│  ├─ prisma/               # DB 스키마
+│  │  ├─ figma/             # Figma Import (Figma API 연동)
+│  │  ├─ a2ui/              # A2UI IR 정의 (중간 표현 포맷)
+│  │  ├─ ds-mapping/        # 디자인 시스템 매핑 (회사 규칙 적용)
+│  │  ├─ codegen/           # 코드 생성 로직 (Vue/Nuxt 출력)
+│  │  ├─ jobs/              # 비동기 작업 처리 (Bull Queue)
+│  │  ├─ mcp/               # (확장 대비) MCP 인터페이스
+│  │  └─ prisma/            # Prisma ORM 모듈
+│  ├─ prisma/               # DB 스키마 정의
+│  ├─ design-system/        # 회사 디자인 가이드 정의 (토큰/컴포넌트 규칙)
+│  ├─ samples/              # 테스트용 샘플 (Figma JSON 등)
 │  └─ Dockerfile
 │
 ├─ web/                     # Frontend (Vue/Nuxt)
-│  ├─ pages/
-│  ├─ components/
+│  ├─ pages/                # 페이지 라우팅
+│  ├─ components/            # Vue 컴포넌트
 │  └─ Dockerfile
 │
-├─ toolserver/              # 보조 변환 도구 서버
+├─ toolserver/              # 보조 변환 도구 서버 (선택적 워커)
 │
-├─ design-system/           # 회사 디자인 가이드 정의
-├─ samples/                 # 테스트용 샘플
-├─ docker-compose.yml
+├─ docker-compose.yml       # 전체 서비스 오케스트레이션
 └─ README.md
 ```
 
@@ -399,3 +401,25 @@ A2UI는:
 
 - "디자이너의 결과물이 많아질수록 가치가 커지는 구조"
 - "사람이 하던 정합성 검증을 시스템이 대신하는 방식"
+
+
+-------------------------------------------------------------
+
+
+DBeaver 연결 정보 (PostgreSQL)
+
+Host: localhost
+
+Port: 15432
+
+Database: a2ui_codegen
+
+Username: company
+
+Password: company_pw
+
+Schema: public (기본 그대로)
+
+JDBC URL로 넣고 싶으면
+
+jdbc:postgresql://localhost:15432/a2ui_codegen
