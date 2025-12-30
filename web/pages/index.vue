@@ -45,7 +45,7 @@
             <div class="font-mono">{{ a.id }}</div>
             <div class="text-slate-600">target: {{ a.target }}</div>
           </div>
-          <a :href="downloadUrl(a.id)" target="_blank" class="px-4 py-2 rounded-lg bg-blue-600 text-white">Download</a>
+          <button @click="downloadArtifact(a.id)" class="px-4 py-2 rounded-lg bg-blue-600 text-white">Download</button>
         </li>
       </ul>
     </section>
@@ -98,5 +98,26 @@ async function loadArtifacts() {
 
 function downloadUrl(id: string) {
   return `${apiBase}/projects/${project.value.id}/artifacts/${id}/download`;
+}
+
+async function downloadArtifact(id: string) {
+  const url = downloadUrl(id);
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token.value}` }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.statusText}`);
+  }
+  
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = `artifact-${id}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
 }
 </script>

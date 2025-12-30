@@ -27,7 +27,7 @@ export class JobsWorker implements OnModuleInit, OnModuleDestroy {
       },
       {
         connection,
-        concurrency: Number(process.env.JOBS_CONCURRENCY || 2),
+        concurrency: Number(process.env.JOBS_CONCURRENCY || 1),
       },
     );
 
