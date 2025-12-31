@@ -93,7 +93,21 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
     try {
       if (jobName === "INGEST_FIGMA") {
-        const raw = await this.figma.importFile(jobData.fileKey);
+        let raw;
+        try {
+          raw = await this.figma.importFile(jobData.fileKey);
+        } catch (e: any) {
+          // 429 에러인 경우 재시도를 위해 특별 처리
+          if (e?.message?.includes('429') || e?.response?.status === 429) {
+            const retryAfter = e?.response?.headers?.['retry-after'] 
+              ? parseInt(e.response.headers['retry-after']) * 1000 
+              : 60000; // 기본 60초 대기
+            this.logger.warn(`Rate limited. Waiting ${retryAfter}ms before retry.`);
+            await new Promise(resolve => setTimeout(resolve, retryAfter));
+            throw e; // BullMQ가 재시도하도록 에러 재발생
+          }
+          throw e;
+        }
 
         const imp = await this.prisma.figmaImport.create({
           data: {
@@ -277,7 +291,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       connection: this.connection,
       defaultJobOptions: {
         removeOnComplete: 50,
-        removeOnFail: 50
+        removeOnFail: 50,
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: 2000
+        }
       }
     });
 
@@ -288,7 +307,11 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       },
       {
         connection: this.connection,
-        concurrency: Number(process.env.JOBS_CONCURRENCY || 2)
+        concurrency: Number(process.env.JOBS_CONCURRENCY || 1), // 기본값을 1로 변경하여 rate limit 방지
+        limiter: {
+          max: 2, // 초당 최대 2개 작업
+          duration: 1000
+        }
       }
     );
 
@@ -310,7 +333,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey } }
     });
 
-    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey });
+    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey }, {
+      attempts: 5,
+      backoff: {
+        type: 'exponential',
+        delay: 5000 // 429 에러 시 5초부터 시작하여 지수적으로 증가
+      }
+    });
 
     return { ok: true, job: dbJob };
   }
