@@ -8,6 +8,7 @@ import { FigmaService } from "../figma/figma.service";
 import { A2uiService } from "../a2ui/a2ui.service";
 import { DsMappingService } from "../ds-mapping/ds-mapping.service";
 import { CodegenService } from "../codegen/codegen.service";
+import { Prisma } from "@prisma/client";
 
 type Policy = "STRICT" | "TOLERANT" | "MIXED";
 
@@ -202,19 +203,24 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
       if (jobName === "GENERATE_CODE") {
         const policy: Policy = (jobData.policy as Policy) || "TOLERANT";
-
+      
         const latestImport = await this.prisma.figmaImport.findFirst({
-          where: { projectId: jobData.projectId },
+          where: {
+            projectId: jobData.projectId,
+            a2uiSpec: { not: Prisma.DbNull }
+          },
           orderBy: { createdAt: "desc" }
         });
-
-        if (!latestImport?.a2uiSpec) throw new Error("No import found");
-
+      
+        if (!latestImport) {
+          throw new Error("No import with a2uiSpec found");
+        }
+      
         let latestMap = await this.prisma.dsMap.findFirst({
           where: { projectId: jobData.projectId, importId: latestImport.id, policy },
           orderBy: { createdAt: "desc" }
         });
-
+      
         if (!latestMap) {
           const ds = this.dsMapping.map(latestImport.a2uiSpec as any, policy);
           latestMap = await this.prisma.dsMap.create({
@@ -226,13 +232,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
             }
           });
         }
-
+      
         const zipPath = await this.codegen.generateZip(
           jobData.projectId,
           jobData.target,
           latestMap.dsSpec as any
         );
-
+      
         const art = await this.prisma.codeArtifact.create({
           data: {
             projectId: jobData.projectId,
@@ -243,12 +249,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
             outputZip: zipPath
           }
         });
-
+      
         await this.prisma.job.update({
           where: { id: dbJobId },
           data: { status: "DONE", output: { artifactId: art.id } }
         });
-
+      
         return;
       }
 
