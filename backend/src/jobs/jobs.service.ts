@@ -300,14 +300,65 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   async enqueueImportFigma(projectId: string, fileKey: string) {
     await this.ensureWorkerStarted();
 
+    if (!fileKey || String(fileKey).trim().length === 0) {
+      throw new Error("fileKey is required");
+    }
+
+    const existing = await this.prisma.job.findFirst({
+      where: {
+        projectId,
+        type: "INGEST_FIGMA",
+        status: { in: ["QUEUED", "RUNNING"] },
+        input: {
+          path: ["fileKey"],
+          equals: fileKey
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    if (existing) {
+      return { ok: true, job: existing, deduped: true };
+    }
+
     const dbJob = await this.prisma.job.create({
       data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey } }
     });
 
-    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey });
+    const jobId = `INGEST_FIGMA:${projectId}:${fileKey}`;
 
-    return { ok: true, job: dbJob };
+    try {
+      await this.queue!.add(
+        "INGEST_FIGMA",
+        { dbJobId: dbJob.id, projectId, fileKey },
+        {
+          jobId,
+          attempts: 1,
+          removeOnComplete: 50,
+          removeOnFail: 50
+        }
+      );
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      if (msg.includes("Job") && msg.includes("already exists")) {
+        const fallback = await this.prisma.job.findFirst({
+          where: {
+            projectId,
+            type: "INGEST_FIGMA",
+            status: { in: ["QUEUED", "RUNNING"] },
+            input: { path: ["fileKey"], equals: fileKey }
+          },
+          orderBy: { createdAt: "desc" }
+        });
+
+        if (fallback) return { ok: true, job: fallback, deduped: true };
+      }
+      throw e;
+    }
+
+    return { ok: true, job: dbJob, deduped: false };
   }
+
 
   async enqueueImportSample(projectId: string) {
     await this.ensureWorkerStarted();

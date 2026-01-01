@@ -20,14 +20,22 @@ export class McpClient {
       if (response.data.ok) {
         return response.data.result;
       }
-      throw new Error(response.data.error || 'Tool invocation failed');
+      throw new Error(response.data.error || "Tool invocation failed");
     } catch (error: any) {
       if (error.response) {
-        throw new Error(error.response.data?.error || error.message);
+        const status = error.response.status;
+        const retryAfter = error.response.headers?.["retry-after"];
+        const msg = error.response.data?.error || error.message || "Tool invocation failed";
+
+        const e: any = new Error(msg);
+        e.status = status;
+        if (retryAfter !== undefined) e.retryAfter = retryAfter;
+        throw e;
       }
       throw error;
     }
   }
+
 
   async listTools(): Promise<string[]> {
     try {
