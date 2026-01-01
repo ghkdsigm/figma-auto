@@ -423,3 +423,8 @@ Schema: public (기본 그대로)
 JDBC URL로 넣고 싶으면
 
 jdbc:postgresql://localhost:15432/a2ui_codegen
+
+
+
+#PSQL 들어가기
+docker compose exec postgres psql -U company -d a2ui_codegen
