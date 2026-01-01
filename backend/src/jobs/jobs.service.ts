@@ -60,6 +60,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     await this.ensureWorkerStarted();
   }
 
+  async getJob(projectId: string, jobId: string) {
+    const job = await this.prisma.job.findFirst({
+      where: { id: jobId, projectId },
+    });
+    return { ok: true, job };
+  }
+
   async onModuleDestroy() {
     try {
       if (this.worker) await this.worker.close();
@@ -97,14 +104,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         try {
           raw = await this.figma.importFile(jobData.fileKey);
         } catch (e: any) {
-          // 429 에러인 경우 재시도를 위해 특별 처리
-          if (e?.message?.includes('429') || e?.response?.status === 429) {
-            const retryAfter = e?.response?.headers?.['retry-after'] 
-              ? parseInt(e.response.headers['retry-after']) * 1000 
-              : 60000; // 기본 60초 대기
-            this.logger.warn(`Rate limited. Waiting ${retryAfter}ms before retry.`);
-            await new Promise(resolve => setTimeout(resolve, retryAfter));
-            throw e; // BullMQ가 재시도하도록 에러 재발생
+          const status = e?.response?.status ?? e?.status;
+          if (status === 429) {
+            const retryAfterHeader = e?.response?.headers?.["retry-after"];
+            const retryAfterMs = retryAfterHeader ? parseInt(String(retryAfterHeader), 10) * 1000 : 15000;
+      
+            this.logger.warn(`Rate limited (429). retryAfter=${retryAfterHeader || "n/a"}; waiting ${retryAfterMs}ms then letting BullMQ retry.`);
+            await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+            throw e;
           }
           throw e;
         }
