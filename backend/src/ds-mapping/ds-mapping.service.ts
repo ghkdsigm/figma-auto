@@ -4,7 +4,7 @@ import * as path from "path";
 import { A2UIRoot, A2UINode, A2UIColor, A2UIDiagnostic } from "../a2ui/spec";
 import { DSRoot, DSNode } from "./spec";
 
-type Policy = "STRICT" | "TOLERANT" | "MIXED";
+type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
 
 type DesignSystem = {
   name: string;
@@ -70,6 +70,46 @@ function pickNearestColorToken(c: A2UIColor, colors: Record<string, { r: number;
 
 function pushDiag(list: A2UIDiagnostic[], diag: A2UIDiagnostic) {
   list.push(diag);
+}
+
+function clamp01(x: number) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function rgbaToHex(c: A2UIColor) {
+  const r = Math.round(clamp01(c.r) * 255);
+  const g = Math.round(clamp01(c.g) * 255);
+  const b = Math.round(clamp01(c.b) * 255);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+function px(v: any): number | undefined {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function clsPx(prefix: string, v: any): string | undefined {
+  const n = px(v);
+  if (n === undefined) return undefined;
+  return `${prefix}-[${n}px]`;
+}
+
+function clsHexBg(fill: any): string | undefined {
+  const c = fill?.color;
+  if (!c) return undefined;
+  return `bg-[${rgbaToHex(c)}]`;
+}
+
+function clsHexText(fill: any): string | undefined {
+  const c = fill?.color;
+  if (!c) return undefined;
+  return `text-[${rgbaToHex(c)}]`;
+}
+
+function clsHexBorder(stroke: any): string | undefined {
+  const c = stroke?.color;
+  if (!c) return undefined;
+  return `border-[${rgbaToHex(c)}]`;
 }
 
 function mapTextVariant(fontSize: number, ds: DesignSystem) {
@@ -149,6 +189,39 @@ export class DsMappingService {
   }
 
   private mapText(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    if (policy === "RAW") {
+      const classes: string[] = [];
+
+      const t = n.style?.typography || {};
+      const fontSize = px(t.fontSize) ?? 16;
+      const fontWeight = px(t.fontWeight);
+      const lineHeight = px(t.lineHeight);
+      const letterSpacing = px(t.letterSpacing);
+      const fontFamily = String(t.fontFamily || "").trim();
+
+      classes.push(`text-[${fontSize}px]`);
+      if (fontWeight !== undefined) classes.push(`font-[${fontWeight}]`);
+      if (lineHeight !== undefined) classes.push(`leading-[${lineHeight}px]`);
+      if (letterSpacing !== undefined) classes.push(`tracking-[${letterSpacing}px]`);
+      if (fontFamily) {
+        const safeFamily = fontFamily.replace(/"/g, "");
+        classes.push(`font-["${safeFamily}"]`);
+      }
+
+      const fill = n.style?.fills?.[0];
+      const textCls = clsHexText(fill);
+      if (textCls) classes.push(textCls);
+
+      return {
+        id: n.id,
+        ref: n.ref,
+        kind: "element",
+        name: "span",
+        classes,
+        props: { text: n.text }
+      };
+    }
+
     const fontSize = Number(n.style?.typography?.fontSize ?? 16);
     const variant = mapTextVariant(fontSize, this.ds);
 
@@ -203,6 +276,67 @@ export class DsMappingService {
   }
 
   private mapFrame(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    if (policy === "RAW") {
+      const classes: string[] = [];
+      const l = n.layout || {};
+
+      if ((l.display || "flex") === "flex") {
+        classes.push("flex");
+        const dir = l.direction === "row" ? "flex-row" : "flex-col";
+        classes.push(dir);
+        if (l.justify === "center") classes.push("justify-center");
+        else if (l.justify === "end") classes.push("justify-end");
+        else if (l.justify === "between") classes.push("justify-between");
+        else classes.push("justify-start");
+
+        if (l.align === "center") classes.push("items-center");
+        else if (l.align === "end") classes.push("items-end");
+        else classes.push("items-start");
+
+        const gapCls = clsPx("gap", l.gap);
+        if (gapCls) classes.push(gapCls);
+      }
+
+      const wCls = clsPx("w", l.width);
+      const hCls = clsPx("h", l.height);
+      if (wCls) classes.push(wCls);
+      if (hCls) classes.push(hCls);
+
+      const p = Array.isArray(l.padding) ? l.padding : undefined;
+      if (p && p.length === 4) {
+        const names = ["pt", "pr", "pb", "pl"] as const;
+        for (let i = 0; i < 4; i++) {
+          const cls = clsPx(names[i], p[i]);
+          if (cls) classes.push(cls);
+        }
+      }
+
+      const fills = n.style?.fills || [];
+      const bgCls = clsHexBg(fills[0]);
+      if (bgCls) classes.push(bgCls);
+
+      const radius = px(n.style?.radius);
+      if (radius !== undefined) classes.push(`rounded-[${radius}px]`);
+
+      const strokes = n.style?.strokes || [];
+      const strokeW = px(n.style?.strokeWeight);
+      const borderColorCls = clsHexBorder(strokes[0]);
+      if (borderColorCls || strokeW !== undefined) {
+        classes.push("border");
+        if (borderColorCls) classes.push(borderColorCls);
+        if (strokeW !== undefined) classes.push(`border-[${strokeW}px]`);
+      }
+
+      return {
+        id: n.id,
+        ref: n.ref,
+        kind: "element",
+        name: "div",
+        classes,
+        children: (n.children || []).map((c: any) => this.mapNode(c, policy, diagnostics))
+      };
+    }
+
     const classes: string[] = [];
 
     const layout = n.layout;

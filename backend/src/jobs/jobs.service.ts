@@ -9,7 +9,7 @@ import { A2uiService } from "../a2ui/a2ui.service";
 import { DsMappingService } from "../ds-mapping/ds-mapping.service";
 import { CodegenService } from "../codegen/codegen.service";
 
-type Policy = "STRICT" | "TOLERANT" | "MIXED";
+type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
 
 const QUEUE_NAME = "a2ui";
 
@@ -161,7 +161,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           data: { a2uiSpec: spec as any }
         });
 
-        const policy: Policy = (jobData.policy as Policy) || "TOLERANT";
+        //const policy: Policy = (jobData.policy as Policy) || "TOLERANT";
+        const policy: Policy = (jobData.policy as Policy) || "RAW";
 
         await this.queue!.add("MAP_DS", {
           dbJobId,
@@ -300,65 +301,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   async enqueueImportFigma(projectId: string, fileKey: string) {
     await this.ensureWorkerStarted();
 
-    if (!fileKey || String(fileKey).trim().length === 0) {
-      throw new Error("fileKey is required");
-    }
-
-    const existing = await this.prisma.job.findFirst({
-      where: {
-        projectId,
-        type: "INGEST_FIGMA",
-        status: { in: ["QUEUED", "RUNNING"] },
-        input: {
-          path: ["fileKey"],
-          equals: fileKey
-        }
-      },
-      orderBy: { createdAt: "desc" }
-    });
-
-    if (existing) {
-      return { ok: true, job: existing, deduped: true };
-    }
-
     const dbJob = await this.prisma.job.create({
       data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey } }
     });
 
-    const jobId = `INGEST_FIGMA:${projectId}:${fileKey}`;
+    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey });
 
-    try {
-      await this.queue!.add(
-        "INGEST_FIGMA",
-        { dbJobId: dbJob.id, projectId, fileKey },
-        {
-          jobId,
-          attempts: 1,
-          removeOnComplete: 50,
-          removeOnFail: 50
-        }
-      );
-    } catch (e: any) {
-      const msg = e?.message || String(e);
-      if (msg.includes("Job") && msg.includes("already exists")) {
-        const fallback = await this.prisma.job.findFirst({
-          where: {
-            projectId,
-            type: "INGEST_FIGMA",
-            status: { in: ["QUEUED", "RUNNING"] },
-            input: { path: ["fileKey"], equals: fileKey }
-          },
-          orderBy: { createdAt: "desc" }
-        });
-
-        if (fallback) return { ok: true, job: fallback, deduped: true };
-      }
-      throw e;
-    }
-
-    return { ok: true, job: dbJob, deduped: false };
+    return { ok: true, job: dbJob };
   }
-
 
   async enqueueImportSample(projectId: string) {
     await this.ensureWorkerStarted();
@@ -372,7 +322,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, job: dbJob };
   }
 
-  async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "TOLERANT") {
+  //async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "TOLERANT") {
+  async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "RAW") {
     await this.ensureWorkerStarted();
 
     const dbJob = await this.prisma.job.create({
@@ -406,7 +357,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, import: imp };
   }
 
-  async getLatestMap(projectId: string, policy: Policy = "TOLERANT") {
+  //async getLatestMap(projectId: string, policy: Policy = "TOLERANT") {
+  async getLatestMap(projectId: string, policy: Policy = "RAW") {
     const imp = await this.prisma.figmaImport.findFirst({
       where: { projectId },
       orderBy: { createdAt: "desc" }

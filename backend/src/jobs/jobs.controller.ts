@@ -23,7 +23,8 @@ export class JobsController {
 
   @Post("generate")
   generate(@Param("projectId") projectId: string, @Body() body: any) {
-    const policy = (body.policy || "TOLERANT") as any;
+    //const policy = (body.policy || "TOLERANT") as any;
+    const policy = (body.policy || "RAW") as any;
     return this.jobs.enqueueGenerate(projectId, body.target || "nuxt", policy);
   }
 
@@ -34,7 +35,8 @@ export class JobsController {
 
   @Get("maps/latest")
   latestMap(@Param("projectId") projectId: string, @Query("policy") policy?: string) {
-    return this.jobs.getLatestMap(projectId, (policy as any) || "TOLERANT");
+    //return this.jobs.getLatestMap(projectId, (policy as any) || "TOLERANT");
+    return this.jobs.getLatestMap(projectId, (policy as any) || "RAW");
   }
 
   @Get("artifacts")

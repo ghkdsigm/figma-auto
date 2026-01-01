@@ -42,6 +42,14 @@ function renderNode(n: DSNode): string {
   const props = renderProps(n.props);
   const cls = renderClasses(n.classes);
 
+  if (n.kind === "element" && n.props && typeof (n.props as any).text === "string" && (!n.children || !n.children.length)) {
+    const text = String((n.props as any).text);
+    const restProps = { ...(n.props || {}) } as any;
+    delete restProps.text;
+    const p = renderProps(restProps);
+    return `<${tag}${cls}${p}>${escText(text)}</${tag}>`;
+  }
+
   if (tag === "img") {
     return `<img${cls}${props} />`;
   }
@@ -81,6 +89,34 @@ function writeFile(p: string, content: string) {
 
 function nuxtFiles(appHtml: string, dsRoot: DSRoot) {
   const diagnosticsJson = JSON.stringify(dsRoot.diagnostics || [], null, 2);
+  const isRaw = dsRoot?.meta?.policy === "RAW";
+
+  const appVue = isRaw
+    ? `<template>
+  <GeneratedScreen />
+</template>
+`
+    : `<template>
+  <div class="min-h-screen bg-white text-slate-900">
+    <main class="max-w-4xl mx-auto p-6">
+      <GeneratedScreen />
+      <details class="mt-10">
+        <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
+        <pre class="mt-3 text-xs whitespace-pre-wrap text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-4">{{ diagnostics }}</pre>
+      </details>
+    </main>
+  </div>
+</template>
+
+<script setup lang="ts">
+import diagnostics from "~/generated/diagnostics.json";
+</script>
+`;
+
+  const generatedScreenVue = `<template>
+  ${appHtml}
+</template>
+`;
 
   return {
     "package.json": JSON.stringify(
@@ -107,17 +143,28 @@ function nuxtFiles(appHtml: string, dsRoot: DSRoot) {
       2
     ),
     "nuxt.config.ts": `export default defineNuxtConfig({
-  devtools: { enabled: true },
   css: ["~/assets/tailwind.css"],
-  components: [{ path: "~/components", pathPrefix: false }]
-})`,
-    "tailwind.config.js": `/** @type {import('tailwindcss').Config} */
-export default {
-  content: ["./components/**/*.{vue,js,ts}", "./pages/**/*.vue", "./app.vue"],
+  postcss: {
+    plugins: {
+      tailwindcss: {},
+      autoprefixer: {}
+    }
+  }
+});
+`,
+    "tailwind.config.js": `export default {
+  content: ["./app.vue", "./components/**/*.{vue,js,ts}", "./pages/**/*.vue"],
   theme: { extend: {} },
   plugins: []
-};`,
-    "postcss.config.js": `export default { plugins: { tailwindcss: {}, autoprefixer: {} } };`,
+};
+`,
+    "postcss.config.js": `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {}
+  }
+};
+`,
     "assets/tailwind.css": `@tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -131,103 +178,8 @@ export default {
   --ds-border: #e2e8f0;
 }
 `,
-    "app.vue": `<template>
-  <div class="min-h-screen bg-white text-slate-900">
-    <main class="max-w-4xl mx-auto p-6">
-      <GeneratedScreen />
-      <details class="mt-10">
-        <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
-        <pre class="mt-3 text-xs whitespace-pre-wrap text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-4">{{ diagnostics }}</pre>
-      </details>
-    </main>
-  </div>
-</template>
-
-<script setup lang="ts">
-import diagnostics from "~/generated/diagnostics.json";
-</script>
-`,
-    "components/GeneratedScreen.vue": `<template>
-  ${appHtml}
-</template>
-`,
-    "components/BaseButton.vue": `<template>
-  <button
-    type="button"
-    :class="[
-      'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition',
-      intentClass,
-      sizeClass
-    ]"
-  >
-    <slot />
-  </button>
-</template>
-
-<script setup lang="ts">
-const props = defineProps<{ intent?: 'primary' | 'secondary' | 'danger'; size?: 'sm' | 'md' | 'lg' }>();
-
-const intentClass = computed(() => {
-  if (props.intent === 'danger') return 'bg-[var(--ds-danger)] text-white';
-  if (props.intent === 'secondary') return 'bg-white border border-[var(--ds-border)] text-[var(--ds-fg)]';
-  return 'bg-[var(--ds-primary)] text-white';
-});
-
-const sizeClass = computed(() => {
-  if (props.size === 'sm') return 'px-3 py-1.5 text-xs';
-  if (props.size === 'lg') return 'px-5 py-3 text-base';
-  return 'px-4 py-2 text-sm';
-});
-</script>
-`,
-    "components/Typography.vue": `<template>
-  <component :is="tag" :class="className"><slot /></component>
-</template>
-
-<script setup lang="ts">
-const props = defineProps<{ variant?: 'h1'|'h2'|'h3'|'body'|'caption'; colorToken?: string }>();
-
-const tag = computed(() => {
-  if (props.variant === 'h1') return 'h1';
-  if (props.variant === 'h2') return 'h2';
-  if (props.variant === 'h3') return 'h3';
-  return 'p';
-});
-
-const className = computed(() => {
-  const v = props.variant || 'body';
-  const base =
-    v === 'h1' ? 'text-3xl font-bold' :
-    v === 'h2' ? 'text-2xl font-bold' :
-    v === 'h3' ? 'text-xl font-semibold' :
-    v === 'caption' ? 'text-xs text-[var(--ds-muted)]' :
-    'text-sm text-[var(--ds-fg)]';
-  return base;
-});
-</script>
-`,
-    "components/BaseInput.vue": `<template>
-  <input
-    :placeholder="placeholder"
-    class="w-full rounded-lg border border-[var(--ds-border)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--ds-primary)]"
-  />
-</template>
-
-<script setup lang="ts">
-defineProps<{ placeholder?: string }>();
-</script>
-`,
-    "components/UnsafeBox.vue": `<template>
-  <div class="border border-dashed border-amber-300 bg-amber-50/50 rounded-lg p-3">
-    <div class="text-xs text-amber-700 mb-2">UnsafeBox: {{ debugName }} ({{ originalType }})</div>
-    <slot />
-  </div>
-</template>
-
-<script setup lang="ts">
-defineProps<{ originalType?: string; debugName?: string }>();
-</script>
-`,
+    "app.vue": appVue,
+    "components/GeneratedScreen.vue": generatedScreenVue,
     "generated/diagnostics.json": diagnosticsJson
   };
 }

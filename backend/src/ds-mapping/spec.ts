@@ -2,7 +2,7 @@ import type { A2UIDiagnostic, A2UIRef } from "../a2ui/spec";
 
 export type DSRoot = {
   version: "0.1";
-  meta: { generatedAt: string; policy: "STRICT" | "TOLERANT" | "MIXED" };
+  meta: { generatedAt: string; policy: "STRICT" | "TOLERANT" | "MIXED" | "RAW" };
   tree: DSNode;
   diagnostics: A2UIDiagnostic[];
 };
