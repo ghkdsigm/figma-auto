@@ -91,6 +91,56 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
+      if (jobName === "INGEST_JSON") {
+        const jsonText = fs.readFileSync(jobData.filePath, "utf-8");
+        const uploaded = JSON.parse(jsonText);
+
+        const raw = (() => {
+          if (uploaded?.document) return uploaded;
+          if (Array.isArray(uploaded)) {
+            return {
+              document: {
+                id: "0:0",
+                name: "Document",
+                type: "DOCUMENT",
+                children: [
+                  {
+                    id: "0:1",
+                    name: "Page 1",
+                    type: "CANVAS",
+                    children: uploaded
+                  }
+                ]
+              }
+            };
+          }
+          throw new Error("Unsupported JSON shape: expected {document:...} or an array of nodes");
+        })();
+
+        const imp = await this.prisma.figmaImport.create({
+          data: {
+            projectId: jobData.projectId,
+            fileKey: jobData.fileKey || "UPLOAD",
+            rawJson: raw
+          }
+        });
+
+        await this.queue!.add("NORMALIZE_A2UI", {
+          dbJobId,
+          projectId: jobData.projectId,
+          importId: imp.id,
+          fileKey: imp.fileKey,
+          policy: jobData.policy
+        });
+
+        await this.prisma.job.update({
+          where: { id: dbJobId },
+          data: { status: "DONE", output: { importId: imp.id } }
+        });
+
+        return;
+      }
+
       if (jobName === "INGEST_FIGMA") {
         const raw = await this.figma.importFile(jobData.fileKey);
 
@@ -310,6 +360,18 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, job: dbJob };
   }
 
+  async enqueueImportJsonFile(projectId: string, filePath: string, fileKey = "UPLOAD") {
+    await this.ensureWorkerStarted();
+
+    const dbJob = await this.prisma.job.create({
+      data: { projectId, type: "INGEST_JSON", status: "QUEUED", input: { fileKey, filePath } }
+    });
+
+    await this.queue!.add("INGEST_JSON", { dbJobId: dbJob.id, projectId, fileKey, filePath });
+
+    return { ok: true, job: dbJob };
+  }
+
   async enqueueImportSample(projectId: string) {
     await this.ensureWorkerStarted();
 
@@ -371,5 +433,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     });
 
     return { ok: true, map };
+  }
+
+  async getJob(jobId: string) {
+    const job = await this.prisma.job.findFirst({ where: { id: jobId } });
+    return { ok: true, job };
   }
 }

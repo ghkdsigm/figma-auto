@@ -24,10 +24,49 @@
         <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="importFigma">Import Figma</button>
         <button class="px-4 py-2 rounded-lg bg-slate-200" @click="importSample">Use Sample</button>
       </div>
+      <div class="pt-4 border-t space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-medium">Import JSON (manual)</h3>
+          <button class="px-3 py-2 rounded-lg border" @click="refreshLatest">Refresh latest</button>
+        </div>
+        <input ref="jsonFileEl" type="file" accept="application/json,.json" class="block w-full text-sm" @change="onPickJson" />
+        <div class="flex flex-wrap gap-2">
+          <button class="px-4 py-2 rounded-lg bg-emerald-600 text-white" :disabled="!pickedJson" @click="uploadJson">Upload JSON</button>
+          <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" :disabled="!pickedJson" @click="uploadJsonAndGenerate('vue')">
+            Upload + Generate Vue
+          </button>
+          <button class="px-4 py-2 rounded-lg bg-slate-200" :disabled="!pickedJson" @click="uploadJsonAndGenerate('nuxt')">
+            Upload + Generate Nuxt
+          </button>
+        </div>
+
+        <div class="text-xs text-slate-600 space-y-1">
+          <div v-if="latestImportId">Latest import: <span class="font-mono">{{ latestImportId }}</span></div>
+          <div v-if="latestMapId">Latest map ({{ policy }}): <span class="font-mono">{{ latestMapId }}</span></div>
+          <div v-if="latestMapId" class="pt-1">
+            <NuxtLink
+              :to="`/preview?projectId=${project.id}&policy=${policy}`"
+              class="text-xs underline"
+            >
+              Open preview (no zip)
+            </NuxtLink>
+          </div>
+          <div v-if="latestError" class="text-red-600">{{ latestError }}</div>
+        </div>
+      </div>
     </section>
 
     <section v-if="project" class="border rounded-xl p-4 space-y-2 max-w-xl">
       <h2 class="font-medium">Generate</h2>
+      <div class="flex items-center gap-3 text-sm">
+        <label class="text-slate-600">policy</label>
+        <select v-model="policy" class="border rounded-lg px-2 py-1">
+          <option value="RAW">RAW</option>
+          <option value="TOLERANT">TOLERANT</option>
+          <option value="MIXED">MIXED</option>
+          <option value="STRICT">STRICT</option>
+        </select>
+      </div>
       <div class="flex gap-2">
         <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="generate('nuxt')">Generate Nuxt</button>
         <button class="px-4 py-2 rounded-lg bg-slate-200" @click="generate('vue')">Generate Vue</button>
@@ -53,6 +92,8 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, watch } from "vue";
+
 const apiBase = useRuntimeConfig().public.apiBase as string;
 
 const email = ref("admin@company.local");
@@ -65,7 +106,35 @@ const project = ref<any>(null);
 const fileKey = ref("");
 const artifacts = ref<any[]>([]);
 
+const policy = ref<"RAW"|"TOLERANT"|"MIXED"|"STRICT">("RAW");
+
+const jsonFileEl = ref<HTMLInputElement | null>(null);
+const pickedJson = ref<File | null>(null);
+
+const latestImportId = ref<string>("");
+const latestMapId = ref<string>("");
+const latestError = ref<string>("");
+
 const authHeaders = computed(() => token.value ? { Authorization: `Bearer ${token.value}` } : {});
+
+onMounted(() => {
+  if (!process.client) return;
+  const savedToken = localStorage.getItem("a2ui_token");
+  if (savedToken) token.value = savedToken;
+});
+
+watch(token, (v) => {
+  if (!process.client) return;
+  if (v) localStorage.setItem("a2ui_token", v);
+});
+
+watch(
+  () => project.value?.id,
+  (v) => {
+    if (!process.client) return;
+    if (v) localStorage.setItem("a2ui_projectId", String(v));
+  }
+);
 
 async function login() {
   const r:any = await $fetch(`${apiBase}/auth/login`, { method: "POST", body: { email: email.value, password: password.value } });
@@ -86,8 +155,58 @@ async function importSample() {
   await $fetch(`${apiBase}/projects/${project.value.id}/import/sample`, { method: "POST", headers: authHeaders.value });
 }
 
+function onPickJson(e: Event) {
+  const input = e.target as HTMLInputElement;
+  pickedJson.value = input.files?.[0] || null;
+}
+
+async function refreshLatest() {
+  latestError.value = "";
+  await Promise.all([loadLatestImport(), loadLatestMap()]);
+}
+
+async function loadLatestImport() {
+  const r:any = await $fetch(`${apiBase}/projects/${project.value.id}/imports/latest`, { headers: authHeaders.value });
+  latestImportId.value = r?.import?.id || "";
+}
+
+async function loadLatestMap() {
+  const r:any = await $fetch(`${apiBase}/projects/${project.value.id}/maps/latest?policy=${policy.value}`, { headers: authHeaders.value });
+  latestMapId.value = r?.map?.id || "";
+}
+
+async function uploadJson() {
+  if (!pickedJson.value) return;
+
+  latestError.value = "";
+
+  const form = new FormData();
+  form.append("file", pickedJson.value);
+
+  const res = await fetch(`${apiBase}/projects/${project.value.id}/import/json`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token.value}`
+    },
+    body: form
+  });
+
+  if (!res.ok) {
+    latestError.value = await res.text();
+    return;
+  }
+
+  await new Promise((r) => setTimeout(r, 600));
+  await refreshLatest();
+}
+
+async function uploadJsonAndGenerate(target: "nuxt" | "vue") {
+  await uploadJson();
+  await generate(target);
+}
+
 async function generate(target: "nuxt"|"vue") {
-  await $fetch(`${apiBase}/projects/${project.value.id}/generate`, { method: "POST", headers: authHeaders.value, body: { target } });
+  await $fetch(`${apiBase}/projects/${project.value.id}/generate`, { method: "POST", headers: authHeaders.value, body: { target, policy: policy.value } });
   setTimeout(loadArtifacts, 1500);
 }
 

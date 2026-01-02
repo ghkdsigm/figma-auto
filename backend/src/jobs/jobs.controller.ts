@@ -1,8 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { JwtAuthGuard } from "../auth/guards";
 import { JobsService } from "./jobs.service";
 import type { Response } from "express";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { diskStorage } from "multer";
+import * as fs from "fs";
+import * as path from "path";
 
 @ApiTags("jobs")
 @ApiBearerAuth()
@@ -14,6 +18,31 @@ export class JobsController {
   @Post("import/figma")
   importFigma(@Param("projectId") projectId: string, @Body() body: any) {
     return this.jobs.enqueueImportFigma(projectId, body.fileKey);
+  }
+
+  @Post("import/json")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({
+        destination: (req, file, cb) => {
+          const dir = process.env.UPLOAD_DIR || path.join(process.cwd(), ".uploads");
+          fs.mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        },
+        filename: (req, file, cb) => {
+          const safe = `${Date.now()}-${file.originalname}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+          cb(null, safe);
+        }
+      }),
+      limits: { fileSize: 20 * 1024 * 1024 }
+    })
+  )
+  importJson(
+    @Param("projectId") projectId: string,
+    @UploadedFile() file?: Express.Multer.File
+  ) {
+    if (!file?.path) throw new BadRequestException("Missing file");
+    return this.jobs.enqueueImportJsonFile(projectId, file.path);
   }
 
   @Post("import/sample")

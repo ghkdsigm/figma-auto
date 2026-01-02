@@ -9,11 +9,12 @@ import { A2uiModule } from "../a2ui/a2ui.module";
 import { CodegenModule } from "../codegen/codegen.module";
 import { DsMappingModule } from "../ds-mapping/ds-mapping.module";
 import { JobsWorker } from "./jobs.worker";
+import { JobStatusController } from "./job-status.controller";
 
 @Module({
   imports:[AuthModule, ProjectsModule, FigmaModule, A2uiModule, DsMappingModule, CodegenModule],
   providers:[JobsService, JobsWorker],
-  controllers:[JobsController]
+  controllers:[JobsController, JobStatusController]
 })
 export class JobsModule implements OnModuleInit {
   constructor(private readonly auth: AuthService, private readonly jobs: JobsService) {}
