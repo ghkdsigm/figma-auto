@@ -97,6 +97,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
         const raw = (() => {
           if (uploaded?.document) return uploaded;
+
           if (Array.isArray(uploaded)) {
             return {
               document: {
@@ -114,7 +115,33 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
               }
             };
           }
-          throw new Error("Unsupported JSON shape: expected {document:...} or an array of nodes");
+
+          if (uploaded?.type === "RESULT" && Array.isArray(uploaded?.payload?.exports)) {
+            const meta = uploaded.payload?.meta || {};
+            const trees = uploaded.payload.exports
+              .map((e: any) => e?.tree)
+              .filter((t: any) => Boolean(t));
+
+            return {
+              document: {
+                id: "0:0",
+                name: "Document",
+                type: "DOCUMENT",
+                children: [
+                  {
+                    id: meta.pageId || "0:1",
+                    name: meta.pageName || "Page 1",
+                    type: "CANVAS",
+                    children: trees
+                  }
+                ]
+              }
+            };
+          }
+
+          throw new Error(
+            "Unsupported JSON shape: expected {document:...} or an array of nodes or {type:'RESULT', payload:{exports:[]}}"
+          );
         })();
 
         const imp = await this.prisma.figmaImport.create({
@@ -211,7 +238,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           data: { a2uiSpec: spec as any }
         });
 
-        //const policy: Policy = (jobData.policy as Policy) || "TOLERANT";
         const policy: Policy = (jobData.policy as Policy) || "RAW";
 
         await this.queue!.add("MAP_DS", {
@@ -384,7 +410,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, job: dbJob };
   }
 
-  //async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "TOLERANT") {
   async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "RAW") {
     await this.ensureWorkerStarted();
 
@@ -419,7 +444,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, import: imp };
   }
 
-  //async getLatestMap(projectId: string, policy: Policy = "TOLERANT") {
   async getLatestMap(projectId: string, policy: Policy = "RAW") {
     const imp = await this.prisma.figmaImport.findFirst({
       where: { projectId },

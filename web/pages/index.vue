@@ -1,54 +1,55 @@
+<!-- pages/index.vue -->
 <template>
   <div class="space-y-6">
     <h1 class="text-2xl font-semibold">A2UI Codegen</h1>
 
     <section class="border rounded-xl p-4 space-y-2 max-w-xl">
-      <h2 class="font-medium">Login</h2>
+      <h2 class="font-medium">로그인</h2>
       <input v-model="email" class="border rounded-lg px-3 py-2 w-full" placeholder="email" />
       <input v-model="password" type="password" class="border rounded-lg px-3 py-2 w-full" placeholder="password" />
-      <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="login">Login</button>
-      <div v-if="token" class="text-sm text-slate-600">Token set</div>
+      <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="login">로그인</button>
+      <div v-if="token" class="text-sm text-slate-600">토큰설정완료</div>
     </section>
 
     <section class="border rounded-xl p-4 space-y-2 max-w-xl">
-      <h2 class="font-medium">Create Project</h2>
+      <h2 class="font-medium">프로젝트 생성</h2>
       <input v-model="projectName" class="border rounded-lg px-3 py-2 w-full" placeholder="project name" />
-      <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="createProject">Create</button>
-      <div v-if="project" class="text-sm">ProjectId: <span class="font-mono">{{ project.id }}</span></div>
+      <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="createProject">생성하기</button>
+      <div v-if="project" class="text-sm">프로젝트ID: <span class="font-mono">{{ project.id }}</span></div>
     </section>
 
     <section v-if="project" class="border rounded-xl p-4 space-y-2 max-w-xl">
-      <h2 class="font-medium">Import</h2>
+      <h2 class="font-medium">피그마 파일키 입력</h2>
       <input v-model="fileKey" class="border rounded-lg px-3 py-2 w-full" placeholder="Figma fileKey" />
       <div class="flex gap-2">
-        <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="importFigma">Import Figma</button>
-        <button class="px-4 py-2 rounded-lg bg-slate-200" @click="importSample">Use Sample</button>
+        <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="importFigma">피그마 파일키 입력</button>
+        <button class="px-4 py-2 rounded-lg bg-slate-200" @click="importSample">샘플 입력</button>
       </div>
       <div class="pt-4 border-t space-y-2">
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-medium">Import JSON (manual)</h3>
-          <button class="px-3 py-2 rounded-lg border" @click="refreshLatest">Refresh latest</button>
+          <h3 class="text-sm font-medium">JSON 파일 업로드 (manual)</h3>
+          <button class="px-3 py-2 rounded-lg border" @click="refreshLatest">최신파일 새로고침</button>
         </div>
         <input ref="jsonFileEl" type="file" accept="application/json,.json" class="block w-full text-sm" @change="onPickJson" />
         <div class="flex flex-wrap gap-2">
-          <button class="px-4 py-2 rounded-lg bg-emerald-600 text-white" :disabled="!pickedJson" @click="uploadJson">Upload JSON</button>
+          <button class="px-4 py-2 rounded-lg bg-emerald-600 text-white" :disabled="!pickedJson" @click="uploadJson">업로드 JSON</button>
           <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" :disabled="!pickedJson" @click="uploadJsonAndGenerate('vue')">
-            Upload + Generate Vue
+            업로드후 Vue 생성
           </button>
           <button class="px-4 py-2 rounded-lg bg-slate-200" :disabled="!pickedJson" @click="uploadJsonAndGenerate('nuxt')">
-            Upload + Generate Nuxt
+            업로드후 Nuxt 생성
           </button>
         </div>
 
         <div class="text-xs text-slate-600 space-y-1">
-          <div v-if="latestImportId">Latest import: <span class="font-mono">{{ latestImportId }}</span></div>
-          <div v-if="latestMapId">Latest map ({{ policy }}): <span class="font-mono">{{ latestMapId }}</span></div>
+          <div v-if="latestImportId">최신파일: <span class="font-mono">{{ latestImportId }}</span></div>
+          <div v-if="latestMapId">최신맵 ({{ policy }}): <span class="font-mono">{{ latestMapId }}</span></div>
           <div v-if="latestMapId" class="pt-1">
             <NuxtLink
               :to="`/preview?projectId=${project.id}&policy=${policy}`"
               class="text-xs underline"
             >
-              Open preview (no zip)
+              미리보기 열기 (ZIP 다운로드 없음)
             </NuxtLink>
           </div>
           <div v-if="latestError" class="text-red-600">{{ latestError }}</div>
@@ -57,9 +58,9 @@
     </section>
 
     <section v-if="project" class="border rounded-xl p-4 space-y-2 max-w-xl">
-      <h2 class="font-medium">Generate</h2>
+      <h2 class="font-medium">ZIP 생성</h2>
       <div class="flex items-center gap-3 text-sm">
-        <label class="text-slate-600">policy</label>
+        <label class="text-slate-600">정책책</label>
         <select v-model="policy" class="border rounded-lg px-2 py-1">
           <option value="RAW">RAW</option>
           <option value="TOLERANT">TOLERANT</option>
@@ -68,23 +69,23 @@
         </select>
       </div>
       <div class="flex gap-2">
-        <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="generate('nuxt')">Generate Nuxt</button>
-        <button class="px-4 py-2 rounded-lg bg-slate-200" @click="generate('vue')">Generate Vue</button>
+        <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="generate('nuxt')">Nuxt 생성</button>
+        <button class="px-4 py-2 rounded-lg bg-slate-200" @click="generate('vue')">VUE 생성</button>
       </div>
     </section>
 
     <section v-if="project" class="border rounded-xl p-4 space-y-2 max-w-xl">
       <div class="flex items-center justify-between">
-        <h2 class="font-medium">Artifacts</h2>
-        <button class="px-3 py-2 rounded-lg border" @click="loadArtifacts">Refresh</button>
+        <h2 class="font-medium">결과물</h2>
+        <button class="px-3 py-2 rounded-lg border" @click="loadArtifacts">새로고침</button>
       </div>
       <ul class="space-y-2">
         <li v-for="a in artifacts" :key="a.id" class="border rounded-lg p-3 flex items-center justify-between">
           <div class="text-sm">
             <div class="font-mono">{{ a.id }}</div>
-            <div class="text-slate-600">target: {{ a.target }}</div>
+            <div class="text-slate-600">목표: {{ a.target }}</div>
           </div>
-          <button @click="downloadArtifact(a.id)" class="px-4 py-2 rounded-lg bg-blue-600 text-white">Download</button>
+          <button @click="downloadArtifact(a.id)" class="px-4 py-2 rounded-lg bg-blue-600 text-white">다운로드</button>
         </li>
       </ul>
     </section>

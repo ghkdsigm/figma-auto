@@ -1,3 +1,4 @@
+<!-- components/a2ui/DsRenderer.vue -->
 <template>
   <component
     :is="tag"

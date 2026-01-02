@@ -1,3 +1,4 @@
+<!-- pages/preview.vue -->
 <template>
   <div class="min-h-screen p-6">
     <div class="max-w-5xl mx-auto space-y-6">
@@ -39,8 +40,18 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useHead } from "#app";
 import { useRoute } from "vue-router";
 import DsRenderer from "~/components/a2ui/DsRenderer.vue";
+
+useHead({
+  script: [
+    {
+      src: "https://cdn.tailwindcss.com",
+      defer: true,
+    },
+  ],
+});
 
 const route = useRoute();
 
