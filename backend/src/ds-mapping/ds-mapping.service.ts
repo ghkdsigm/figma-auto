@@ -282,8 +282,11 @@ export class DsMappingService {
 
       if ((l.display || "flex") === "flex") {
         classes.push("flex");
-        const dir = l.direction === "row" ? "flex-row" : "flex-col";
-        classes.push(dir);
+
+        if (l.direction === "row") classes.push("flex-row");
+        else if (l.direction === "column") classes.push("flex-col");
+        else classes.push("flex-col");
+
         if (l.justify === "center") classes.push("justify-center");
         else if (l.justify === "end") classes.push("justify-end");
         else if (l.justify === "between") classes.push("justify-between");
@@ -291,16 +294,26 @@ export class DsMappingService {
 
         if (l.align === "center") classes.push("items-center");
         else if (l.align === "end") classes.push("items-end");
+        else if (l.align === "stretch") classes.push("items-stretch");
         else classes.push("items-start");
 
         const gapCls = clsPx("gap", l.gap);
         if (gapCls) classes.push(gapCls);
       }
 
-      const wCls = clsPx("w", l.width);
-      const hCls = clsPx("h", l.height);
-      if (wCls) classes.push(wCls);
-      if (hCls) classes.push(hCls);
+      if (l.width === "fill") {
+        classes.push("w-full");
+      } else {
+        const wCls = clsPx("w", l.width);
+        if (wCls) classes.push(wCls);
+      }
+
+      if (l.height === "fill") {
+        classes.push("h-full");
+      } else {
+        const hCls = clsPx("h", l.height);
+        if (hCls) classes.push(hCls);
+      }
 
       const p = Array.isArray(l.padding) ? l.padding : undefined;
       if (p && p.length === 4) {
@@ -321,10 +334,14 @@ export class DsMappingService {
       const strokes = n.style?.strokes || [];
       const strokeW = px(n.style?.strokeWeight);
       const borderColorCls = clsHexBorder(strokes[0]);
-      if (borderColorCls || strokeW !== undefined) {
+
+      const hasStroke = strokes.length > 0;
+      if (hasStroke) {
         classes.push("border");
         if (borderColorCls) classes.push(borderColorCls);
-        if (strokeW !== undefined) classes.push(`border-[${strokeW}px]`);
+        if (strokeW !== undefined && strokeW !== 1) {
+          classes.push(`border-[${strokeW}px]`);
+        }
       }
 
       return {
