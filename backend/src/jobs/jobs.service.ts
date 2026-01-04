@@ -13,6 +13,28 @@ type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
 
 const QUEUE_NAME = "a2ui";
 
+function getAbsXY(n: any): { x: number; y: number } {
+  const x = Number(n?.x ?? n?.absoluteBoundingBox?.x ?? n?.absoluteTransform?.[0]?.[2] ?? 0);
+  const y = Number(n?.y ?? n?.absoluteBoundingBox?.y ?? n?.absoluteTransform?.[1]?.[2] ?? 0);
+
+  return {
+    x: Number.isFinite(x) ? x : 0,
+    y: Number.isFinite(y) ? y : 0
+  };
+}
+
+function sortByCanvasPosition(a: any, b: any): number {
+  const pa = getAbsXY(a);
+  const pb = getAbsXY(b);
+
+  if (pa.y !== pb.y) return pa.y - pb.y;
+  if (pa.x !== pb.x) return pa.x - pb.x;
+
+  const ida = String(a?.id ?? "");
+  const idb = String(b?.id ?? "");
+  return ida.localeCompare(idb);
+}
+
 @Injectable()
 export class JobsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(JobsService.name);
@@ -120,7 +142,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
             const meta = uploaded.payload?.meta || {};
             const trees = uploaded.payload.exports
               .map((e: any) => e?.tree)
-              .filter((t: any) => Boolean(t));
+              .filter((t: any) => Boolean(t))
+              .sort(sortByCanvasPosition);
 
             return {
               document: {
