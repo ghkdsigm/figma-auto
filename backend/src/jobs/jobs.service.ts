@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from "@nestjs/common";
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, NotFoundException } from "@nestjs/common";
 import * as fs from "fs";
 import * as path from "path";
 import { PrismaService } from "../prisma/prisma.service";
@@ -53,16 +53,24 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     private readonly codegen: CodegenService
   ) {}
 
-  private createRedisConnection() {
+  private createRedisConnectionOptions() {
     const urlFromEnv = process.env.REDIS_URL;
     if (urlFromEnv && urlFromEnv.trim().length > 0) {
-      return new IORedis(urlFromEnv, { maxRetriesPerRequest: null });
+      return { url: urlFromEnv, maxRetriesPerRequest: null };
     }
 
     const host = process.env.REDIS_HOST || "redis";
     const port = Number(process.env.REDIS_PORT || 6379);
 
-    return new IORedis({ host, port, maxRetriesPerRequest: null });
+    return { host, port, maxRetriesPerRequest: null };
+  }
+
+  private createRedisConnection() {
+    const options = this.createRedisConnectionOptions();
+    if (options.url) {
+      return new IORedis(options.url, { maxRetriesPerRequest: null });
+    }
+    return new IORedis({ host: options.host, port: options.port, maxRetriesPerRequest: null });
   }
 
   private async ensureWorkerStarted() {
@@ -75,6 +83,16 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     }
 
     await this.starting;
+  }
+
+  private async ensureProjectExists(projectId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId }
+    });
+    if (!project) {
+      throw new NotFoundException(`Project not found: ${projectId}`);
+    }
+    return project;
   }
 
   async onModuleInit() {
@@ -192,7 +210,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (jobName === "INGEST_FIGMA") {
-        const raw = await this.figma.importFile(jobData.fileKey);
+        const raw = jobData.nodeIds?.length  ? await this.figma.importNodes(jobData.fileKey, jobData.nodeIds) : await this.figma.importFile(jobData.fileKey);
 
         const imp = await this.prisma.figmaImport.create({
           data: {
@@ -366,9 +384,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (this.worker && this.queue) return;
 
     this.connection = this.createRedisConnection();
+    const connectionOptions = this.createRedisConnectionOptions();
 
     this.queue = new Queue(QUEUE_NAME, {
-      connection: this.connection,
+      connection: connectionOptions,
       defaultJobOptions: {
         removeOnComplete: 50,
         removeOnFail: 50
@@ -381,7 +400,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         return this.process(job.name, job.data);
       },
       {
-        connection: this.connection,
+        connection: connectionOptions,
         concurrency: Number(process.env.JOBS_CONCURRENCY || 2)
       }
     );
@@ -397,19 +416,22 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Worker started. queue=${QUEUE_NAME}`);
   }
 
-  async enqueueImportFigma(projectId: string, fileKey: string) {
+  async enqueueImportFigma(projectId: string, fileKey: string, nodeIds?: string[]) {
+    await this.ensureProjectExists(projectId);
     await this.ensureWorkerStarted();
-
+  
     const dbJob = await this.prisma.job.create({
-      data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey } }
+      data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey, nodeIds } }
     });
-
-    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey });
-
+  
+    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey, nodeIds });
+  
     return { ok: true, job: dbJob };
   }
+  
 
   async enqueueImportJsonFile(projectId: string, filePath: string, fileKey = "UPLOAD") {
+    await this.ensureProjectExists(projectId);
     await this.ensureWorkerStarted();
 
     const dbJob = await this.prisma.job.create({
@@ -422,6 +444,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async enqueueImportSample(projectId: string) {
+    await this.ensureProjectExists(projectId);
     await this.ensureWorkerStarted();
 
     const dbJob = await this.prisma.job.create({
@@ -434,6 +457,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "RAW") {
+    await this.ensureProjectExists(projectId);
     await this.ensureWorkerStarted();
 
     const dbJob = await this.prisma.job.create({

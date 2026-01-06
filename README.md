@@ -203,20 +203,41 @@ figma-auto/
 │  │  ├─ codegen/           # 코드 생성 로직 (Vue/Nuxt 출력)
 │  │  ├─ jobs/              # 비동기 작업 처리 (Bull Queue)
 │  │  ├─ mcp/               # (확장 대비) MCP 인터페이스
-│  │  └─ prisma/            # Prisma ORM 모듈
+│  │  ├─ prisma/            # Prisma ORM 모듈
+│  │  ├─ app.module.ts      # 루트 모듈
+│  │  └─ main.ts            # 진입점
 │  ├─ prisma/               # DB 스키마 정의
 │  ├─ design-system/        # 회사 디자인 가이드 정의 (토큰/컴포넌트 규칙)
 │  ├─ samples/              # 테스트용 샘플 (Figma JSON 등)
-│  └─ Dockerfile
+│  ├─ Dockerfile
+│  ├─ docker-entrypoint.sh
+│  ├─ nest-cli.json
+│  ├─ package.json
+│  └─ tsconfig.json
 │
 ├─ web/                     # Frontend (Vue/Nuxt)
 │  ├─ pages/                # 페이지 라우팅
-│  ├─ components/            # Vue 컴포넌트
+│  ├─ components/           # Vue 컴포넌트
+│  │  └─ a2ui/              # A2UI 관련 컴포넌트
+│  ├─ assets/               # 정적 자산
+│  ├─ app.vue               # 루트 컴포넌트
+│  ├─ nuxt.config.ts        # Nuxt 설정
+│  ├─ tailwind.config.js    # Tailwind 설정
+│  ├─ package.json
 │  └─ Dockerfile
 │
 ├─ toolserver/              # 보조 변환 도구 서버 (선택적 워커)
+│  ├─ src/
+│  │  └─ index.js
+│  ├─ Dockerfile
+│  └─ package.json
 │
 ├─ docker-compose.yml       # 전체 서비스 오케스트레이션
+│  ├─ postgres             # PostgreSQL 데이터베이스
+│  ├─ redis                # Redis (Bull Queue용 메시지 큐)
+│  ├─ api                  # NestJS Backend 서비스
+│  ├─ web                  # Nuxt Frontend 서비스
+│  └─ toolserver           # 보조 도구 서버
 └─ README.md
 ```
 

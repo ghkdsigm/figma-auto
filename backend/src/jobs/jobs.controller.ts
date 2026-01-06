@@ -17,7 +17,7 @@ export class JobsController {
 
   @Post("import/figma")
   importFigma(@Param("projectId") projectId: string, @Body() body: any) {
-    return this.jobs.enqueueImportFigma(projectId, body.fileKey);
+    return this.jobs.enqueueImportFigma(projectId, body.fileKey, body.nodeIds);
   }
 
   @Post("import/json")

@@ -13,3 +13,5 @@ fi
 echo "Starting application..."
 exec node dist/main.js
 
+
+

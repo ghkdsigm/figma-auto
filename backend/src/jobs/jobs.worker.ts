@@ -10,14 +10,16 @@ export class JobsWorker implements OnModuleInit, OnModuleDestroy {
   private worker?: Worker;
 
   onModuleInit() {
-    const host = process.env.REDIS_HOST || "redis";
-    const port = Number(process.env.REDIS_PORT || 6379);
+    const urlFromEnv = process.env.REDIS_URL;
+    let connectionOptions: { url?: string; host?: string; port?: number; maxRetriesPerRequest: number | null };
 
-    const connection = new IORedis({
-      host,
-      port,
-      maxRetriesPerRequest: null,
-    });
+    if (urlFromEnv && urlFromEnv.trim().length > 0) {
+      connectionOptions = { url: urlFromEnv, maxRetriesPerRequest: null };
+    } else {
+      const host = process.env.REDIS_HOST || "redis";
+      const port = Number(process.env.REDIS_PORT || 6379);
+      connectionOptions = { host, port, maxRetriesPerRequest: null };
+    }
 
     this.worker = new Worker(
       JOBS_QUEUE_NAME,
@@ -26,7 +28,7 @@ export class JobsWorker implements OnModuleInit, OnModuleDestroy {
         return this.jobsService.process(job.name, job.data);
       },
       {
-        connection,
+        connection: connectionOptions,
         concurrency: Number(process.env.JOBS_CONCURRENCY || 1),
       },
     );
