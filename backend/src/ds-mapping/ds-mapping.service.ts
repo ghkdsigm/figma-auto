@@ -112,6 +112,25 @@ function clsHexBorder(stroke: any): string | undefined {
   return `border-[${rgbaToHex(c)}]`;
 }
 
+function clsShadow(shadow: any): string | undefined {
+  if (!shadow) return undefined;
+  const x = px(shadow.x) ?? 0;
+  const y = px(shadow.y) ?? 0;
+  const blur = px(shadow.blur) ?? 0;
+  const spread = px(shadow.spread) ?? 0;
+  const c = shadow.color;
+  if (!c) return undefined;
+
+  const r = Math.round(clamp01(c.r) * 255);
+  const g = Math.round(clamp01(c.g) * 255);
+  const b = Math.round(clamp01(c.b) * 255);
+  const a = clamp01(Number(c.a ?? 1));
+  const rgba = `rgba(${r},${g},${b},${Number.isFinite(a) ? a.toFixed(3) : "1"})`;
+
+  // Tailwind arbitrary values: spaces become underscores
+  return `shadow-[${x}px_${y}px_${blur}px_${spread}px_${rgba}]`;
+}
+
 function mapTextVariant(fontSize: number, ds: DesignSystem) {
   const rules = ds.tokens?.typography ? Object.entries(ds.tokens.typography) : [];
   if (!rules.length) return "body";
@@ -166,12 +185,31 @@ export class DsMappingService {
 
   private mapButton(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
     if (policy === "RAW") {
+      const intent = String(n.intent || "primary");
+      const size = String(n.size || "md");
+
+      const sizeCls =
+        size === "sm" ? "px-3 py-1.5 text-sm" :
+        size === "lg" ? "px-5 py-3 text-base" :
+        "px-4 py-2 text-sm";
+
+      const intentCls =
+        intent === "secondary" ? "bg-white text-[var(--ds-fg)] border border-[var(--ds-border)]" :
+        intent === "danger" ? "bg-[var(--ds-danger)] text-white" :
+        "bg-[var(--ds-primary)] text-white";
+
       return {
         id: n.id,
         ref: n.ref,
         kind: "element",
         name: "button",
-        classes: [],
+        classes: [
+          "inline-flex items-center justify-center rounded-lg font-medium",
+          sizeCls,
+          intentCls,
+          "shadow-sm",
+          "focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)] focus:ring-offset-2"
+        ],
         children: [
           {
             id: `${n.id}_label`,
@@ -354,6 +392,9 @@ export class DsMappingService {
 
       const radius = px(n.style?.radius);
       if (radius !== undefined) classes.push(`rounded-[${radius}px]`);
+
+      const shadowCls = clsShadow(n.style?.shadow);
+      if (shadowCls) classes.push(shadowCls);
 
       const strokes = n.style?.strokes || [];
       const strokeW = px(n.style?.strokeWeight);

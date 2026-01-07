@@ -48,6 +48,7 @@ export type A2UIStyle = {
   strokes?: Array<{ type: "solid"; color: A2UIColor }>;
   strokeWeight?: number;
   radius?: number;
+  shadow?: { x: number; y: number; blur: number; spread?: number; color: A2UIColor };
   typography?: {
     fontSize: number;
     fontWeight: number;

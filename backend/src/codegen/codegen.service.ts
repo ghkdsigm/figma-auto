@@ -93,6 +93,111 @@ function nuxtFiles(appHtml: string, dsRoot: DSRoot) {
   const diagnosticsJson = JSON.stringify(dsRoot.diagnostics || [], null, 2);
   const isRaw = dsRoot?.meta?.policy === "RAW";
 
+  const baseButtonVue = `<template>
+  <button :class="cls" type="button">
+    <slot />
+  </button>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  intent?: "primary" | "secondary" | "danger";
+  size?: "sm" | "md" | "lg";
+}>();
+
+const cls = computed(() => {
+  const intent = props.intent || "primary";
+  const size = props.size || "md";
+
+  const sizeCls =
+    size === "sm" ? "px-3 py-1.5 text-sm" :
+    size === "lg" ? "px-5 py-3 text-base" :
+    "px-4 py-2 text-sm";
+
+  const intentCls =
+    intent === "secondary" ? "bg-white text-[var(--ds-fg)] border border-[var(--ds-border)]" :
+    intent === "danger" ? "bg-[var(--ds-danger)] text-white" :
+    "bg-[var(--ds-primary)] text-white";
+
+  return [
+    "inline-flex items-center justify-center rounded-lg font-medium",
+    sizeCls,
+    intentCls,
+    "shadow-sm",
+    "focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)] focus:ring-offset-2"
+  ].join(" ");
+});
+</script>
+`;
+
+  const typographyVue = `<template>
+  <component :is="tag" :class="cls">
+    <slot />
+  </component>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  variant?: "h1" | "h2" | "h3" | "body" | "caption";
+  colorToken?: "fg" | "muted" | "primary" | "danger" | "border" | "surface";
+}>();
+
+const tag = computed(() => {
+  const v = props.variant || "body";
+  if (v === "h1") return "h1";
+  if (v === "h2") return "h2";
+  if (v === "h3") return "h3";
+  return "span";
+});
+
+const cls = computed(() => {
+  const v = props.variant || "body";
+  const color =
+    props.colorToken === "primary" ? "text-[var(--ds-primary)]" :
+    props.colorToken === "danger" ? "text-[var(--ds-danger)]" :
+    props.colorToken === "muted" ? "text-[var(--ds-muted)]" :
+    props.colorToken === "fg" ? "text-[var(--ds-fg)]" :
+    "";
+
+  const size =
+    v === "h1" ? "text-2xl font-semibold" :
+    v === "h2" ? "text-xl font-semibold" :
+    v === "h3" ? "text-lg font-semibold" :
+    v === "caption" ? "text-xs text-[var(--ds-muted)]" :
+    "text-sm";
+
+  return [size, color].filter(Boolean).join(" ");
+});
+</script>
+`;
+
+  const baseInputVue = `<template>
+  <input :class="cls" :placeholder="placeholder" />
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{ placeholder?: string }>();
+
+const cls = computed(() =>
+  "px-3 py-2 rounded-lg border border-[var(--ds-border)] w-full focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)]"
+);
+const placeholder = computed(() => props.placeholder || "");
+</script>
+`;
+
+  const unsafeBoxVue = `<template>
+  <div class="border border-dashed border-slate-300 p-2 rounded">
+    <slot />
+  </div>
+</template>
+`;
+
   const appVue = isRaw
     ? `<template>
   <GeneratedScreen />
@@ -182,6 +287,10 @@ import diagnostics from "~/generated/diagnostics.json";
 `,
     "app.vue": appVue,
     "components/GeneratedScreen.vue": generatedScreenVue,
+    "components/BaseButton.vue": baseButtonVue,
+    "components/Typography.vue": typographyVue,
+    "components/BaseInput.vue": baseInputVue,
+    "components/UnsafeBox.vue": unsafeBoxVue,
     "generated/diagnostics.json": diagnosticsJson
   };
 }
@@ -189,6 +298,111 @@ import diagnostics from "~/generated/diagnostics.json";
 function viteFiles(appHtml: string, dsRoot: DSRoot) {
   const diagnosticsJson = JSON.stringify(dsRoot.diagnostics || [], null, 2);
   const isRaw = dsRoot?.meta?.policy === "RAW";
+
+  const baseButtonVue = `<template>
+  <button :class="cls" type="button">
+    <slot />
+  </button>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  intent?: "primary" | "secondary" | "danger";
+  size?: "sm" | "md" | "lg";
+}>();
+
+const cls = computed(() => {
+  const intent = props.intent || "primary";
+  const size = props.size || "md";
+
+  const sizeCls =
+    size === "sm" ? "px-3 py-1.5 text-sm" :
+    size === "lg" ? "px-5 py-3 text-base" :
+    "px-4 py-2 text-sm";
+
+  const intentCls =
+    intent === "secondary" ? "bg-white text-[var(--ds-fg)] border border-[var(--ds-border)]" :
+    intent === "danger" ? "bg-[var(--ds-danger)] text-white" :
+    "bg-[var(--ds-primary)] text-white";
+
+  return [
+    "inline-flex items-center justify-center rounded-lg font-medium",
+    sizeCls,
+    intentCls,
+    "shadow-sm",
+    "focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)] focus:ring-offset-2"
+  ].join(" ");
+});
+</script>
+`;
+
+  const typographyVue = `<template>
+  <component :is="tag" :class="cls">
+    <slot />
+  </component>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  variant?: "h1" | "h2" | "h3" | "body" | "caption";
+  colorToken?: "fg" | "muted" | "primary" | "danger" | "border" | "surface";
+}>();
+
+const tag = computed(() => {
+  const v = props.variant || "body";
+  if (v === "h1") return "h1";
+  if (v === "h2") return "h2";
+  if (v === "h3") return "h3";
+  return "span";
+});
+
+const cls = computed(() => {
+  const v = props.variant || "body";
+  const color =
+    props.colorToken === "primary" ? "text-[var(--ds-primary)]" :
+    props.colorToken === "danger" ? "text-[var(--ds-danger)]" :
+    props.colorToken === "muted" ? "text-[var(--ds-muted)]" :
+    props.colorToken === "fg" ? "text-[var(--ds-fg)]" :
+    "";
+
+  const size =
+    v === "h1" ? "text-2xl font-semibold" :
+    v === "h2" ? "text-xl font-semibold" :
+    v === "h3" ? "text-lg font-semibold" :
+    v === "caption" ? "text-xs text-[var(--ds-muted)]" :
+    "text-sm";
+
+  return [size, color].filter(Boolean).join(" ");
+});
+</script>
+`;
+
+  const baseInputVue = `<template>
+  <input :class="cls" :placeholder="placeholder" />
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{ placeholder?: string }>();
+
+const cls = computed(() =>
+  "px-3 py-2 rounded-lg border border-[var(--ds-border)] w-full focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)]"
+);
+const placeholder = computed(() => props.placeholder || "");
+</script>
+`;
+
+  const unsafeBoxVue = `<template>
+  <div class="border border-dashed border-slate-300 p-2 rounded">
+    <slot />
+  </div>
+</template>
+`;
 
   const appVue = isRaw
     ? `<template>
@@ -288,9 +502,23 @@ export default defineConfig({
 import App from "./App.vue";
 import "./styles/tailwind.css";
 
-createApp(App).mount("#app");
+import BaseButton from "./components/BaseButton.vue";
+import Typography from "./components/Typography.vue";
+import BaseInput from "./components/BaseInput.vue";
+import UnsafeBox from "./components/UnsafeBox.vue";
+
+const app = createApp(App);
+app.component("BaseButton", BaseButton);
+app.component("Typography", Typography);
+app.component("BaseInput", BaseInput);
+app.component("UnsafeBox", UnsafeBox);
+app.mount("#app");
 `,
     "src/App.vue": appVue,
+    "src/components/BaseButton.vue": baseButtonVue,
+    "src/components/Typography.vue": typographyVue,
+    "src/components/BaseInput.vue": baseInputVue,
+    "src/components/UnsafeBox.vue": unsafeBoxVue,
     "public/assets/.gitkeep": "",
     "src/generated/diagnostics.json": diagnosticsJson
   };
@@ -404,14 +632,24 @@ export class CodegenService {
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
     if (t === "vue") {
+      const files = viteFiles(screen, dsRoot);
       return {
-        "src/App.vue": viteFiles(screen, dsRoot)["src/App.vue"],
-        "src/main.ts": viteFiles(screen, dsRoot)["src/main.ts"]
+        "src/App.vue": files["src/App.vue"],
+        "src/main.ts": files["src/main.ts"],
+        "src/components/BaseButton.vue": files["src/components/BaseButton.vue"],
+        "src/components/Typography.vue": files["src/components/Typography.vue"],
+        "src/components/BaseInput.vue": files["src/components/BaseInput.vue"],
+        "src/components/UnsafeBox.vue": files["src/components/UnsafeBox.vue"]
       };
     }
+    const files = nuxtFiles(screen, dsRoot);
     return {
-      "components/GeneratedScreen.vue": nuxtFiles(screen, dsRoot)["components/GeneratedScreen.vue"],
-      "app.vue": nuxtFiles(screen, dsRoot)["app.vue"]
+      "components/GeneratedScreen.vue": files["components/GeneratedScreen.vue"],
+      "app.vue": files["app.vue"],
+      "components/BaseButton.vue": files["components/BaseButton.vue"],
+      "components/Typography.vue": files["components/Typography.vue"],
+      "components/BaseInput.vue": files["components/BaseInput.vue"],
+      "components/UnsafeBox.vue": files["components/UnsafeBox.vue"]
     };
   }
 }

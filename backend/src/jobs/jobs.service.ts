@@ -518,6 +518,51 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, map };
   }
 
+  private findNodeById(root: any, id: string): any | null {
+    if (!root) return null;
+    const stack: any[] = [root];
+    while (stack.length) {
+      const n = stack.pop();
+      if (!n) continue;
+      if (String(n.id || "") === id) return n;
+      const children = n.children;
+      if (Array.isArray(children) && children.length) {
+        for (let i = children.length - 1; i >= 0; i -= 1) stack.push(children[i]);
+      }
+    }
+    return null;
+  }
+
+  async debugNode(projectId: string, nodeId: string, policy: Policy = "RAW") {
+    const imp = await this.prisma.figmaImport.findFirst({
+      where: { projectId },
+      orderBy: { createdAt: "desc" }
+    });
+    if (!imp) throw new NotFoundException("import not found");
+
+    const raw = imp.rawJson as any;
+    const rawRoot = raw?.document ?? raw?.payload?.tree ?? raw?.tree ?? raw;
+    const rawNode = this.findNodeById(rawRoot, nodeId);
+
+    const a2uiRoot = (imp.a2uiSpec as any) || this.a2ui.fromFigma(raw, imp.fileKey);
+    const a2uiNode = this.findNodeById(a2uiRoot?.tree, nodeId);
+
+    const dsRoot = this.dsMapping.map(a2uiRoot as any, policy);
+    const dsNode = this.findNodeById(dsRoot?.tree, nodeId);
+
+    return {
+      ok: true,
+      projectId,
+      policy,
+      import: { id: imp.id, fileKey: imp.fileKey, createdAt: imp.createdAt },
+      nodeId,
+      rawNode,
+      a2uiNode,
+      dsNode,
+      diagnostics: dsRoot?.diagnostics || []
+    };
+  }
+
   async getJob(jobId: string) {
     const job = await this.prisma.job.findFirst({ where: { id: jobId } });
     return { ok: true, job };

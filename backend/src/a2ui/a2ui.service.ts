@@ -31,6 +31,26 @@ function pickSolidPaints(paints: any[] | undefined): Array<{ type: "solid"; colo
   }));
 }
 
+function pickDropShadow(effects: any[] | undefined): { x: number; y: number; blur: number; spread?: number; color: A2UIColor } | undefined {
+  const list = (effects || []).filter((e) => e && e.type === "DROP_SHADOW" && e.visible !== false);
+  if (!list.length) return undefined;
+  const e = list[0] || {};
+  const x = Number(e?.offset?.x ?? 0);
+  const y = Number(e?.offset?.y ?? 0);
+  const blur = Number(e?.radius ?? 0);
+  const spread = e?.spread !== undefined ? Number(e.spread) : undefined;
+  const color = figmaColorToA2(e?.color ?? { r: 0, g: 0, b: 0, a: 0.25 });
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(blur)) return undefined;
+  return {
+    x,
+    y,
+    blur,
+    spread: spread !== undefined && Number.isFinite(spread) ? spread : undefined,
+    color
+  };
+}
+
 function nodeRef(n: FigmaNode, namePath: string[]): A2UIRef {
   return {
     figmaNodeId: n?.id ? String(n.id) : undefined,
@@ -153,6 +173,7 @@ function nodeStyle(n: FigmaNode): A2UIStyle | undefined {
   const fills = pickSolidPaints(n?.fills);
   const strokes = pickSolidPaints(n?.strokes);
   const strokeWeight = n?.strokeWeight !== undefined ? Number(n.strokeWeight) : undefined;
+  const shadow = pickDropShadow(n?.effects);
 
   const radius =
     n?.cornerRadius !== undefined ? Number(n.cornerRadius)
@@ -186,13 +207,16 @@ function nodeStyle(n: FigmaNode): A2UIStyle | undefined {
     fontFamily: n.style.fontFamily ? String(n.style.fontFamily) : undefined
   } : undefined);
 
-  if (!fills && !strokes && strokeWeight === undefined && (radius === undefined || Number.isNaN(radius)) && !typography) return undefined;
+  if (!fills && !strokes && strokeWeight === undefined && !shadow && (radius === undefined || Number.isNaN(radius)) && !typography) {
+    return undefined;
+  }
 
   return {
     fills,
     strokes,
     strokeWeight: Number.isFinite(strokeWeight as any) ? strokeWeight : undefined,
     radius: Number.isFinite(radius as any) ? radius : undefined,
+    shadow,
     typography: typography && Number.isFinite(typography.fontSize) && typography.fontSize > 0 ? typography : undefined
   };
 }

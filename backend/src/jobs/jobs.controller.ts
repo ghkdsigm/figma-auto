@@ -68,6 +68,14 @@ export class JobsController {
     return this.jobs.getLatestMap(projectId, (policy as any) || "RAW");
   }
 
+  // Debug helper: inspect a specific Figma node across raw -> a2ui -> ds mapping.
+  // Example: GET /projects/:projectId/debug/node?nodeId=4079:44362&policy=RAW
+  @Get("debug/node")
+  debugNode(@Param("projectId") projectId: string, @Query("nodeId") nodeId?: string, @Query("policy") policy?: string) {
+    if (!nodeId) throw new BadRequestException("nodeId is required");
+    return this.jobs.debugNode(projectId, nodeId, (policy as any) || "RAW");
+  }
+
   @Get("artifacts")
   listArtifacts(@Param("projectId") projectId: string) {
     return this.jobs.listArtifacts(projectId);
