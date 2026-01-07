@@ -255,6 +255,7 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
 
   if (type === "RECTANGLE") {
     const fills = base.style?.fills;
+    const strokes = base.style?.strokes;
     const looksLikeImage = (n.fills || []).some((p: any) => p?.type === "IMAGE");
     if (looksLikeImage) {
       return {
@@ -263,7 +264,12 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
         srcRef: n.fills?.[0]?.imageRef ? { figmaImageRef: String(n.fills[0].imageRef) } : undefined
       };
     }
-    if (fills && fills.length) {
+    // Many UI primitives (checkbox borders, select outlines, dividers) are stroke-only rectangles.
+    // If we drop rectangles without fills, those controls disappear in RAW output.
+    const hasFills = Array.isArray(fills) && fills.length > 0;
+    const hasStrokes = Array.isArray(strokes) && strokes.length > 0;
+
+    if (hasFills || hasStrokes) {
       return { ...base, type: "frame", children: [] };
     }
     return null;
