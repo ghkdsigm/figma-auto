@@ -313,34 +313,6 @@ export class DsMappingService {
     };
   }
 
-        ],
-        props: {}
-      };
-    }
-
-    const intent = n.intent || "primary";
-    const size = n.size || "md";
-
-    if (!["primary", "secondary", "danger"].includes(intent)) {
-      pushDiag(diagnostics, {
-        severity: policy === "STRICT" ? "error" : "warn",
-        code: "DS_BUTTON_INTENT_UNKNOWN",
-        message: `알 수 없는 버튼 intent: ${intent}`,
-        nodeId: n.id,
-        ref: n.ref,
-        suggestion: { action: "map_to_nearest", detail: "primary로 폴백" }
-      });
-    }
-
-    return {
-      id: n.id,
-      ref: n.ref,
-      kind: "component",
-      name: "BaseButton",
-      props: { intent: ["primary", "secondary", "danger"].includes(intent) ? intent : "primary", size, label: n.label }
-    };
-  }
-
   private mapText(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
     if (policy === "RAW") {
       const classes: string[] = [];

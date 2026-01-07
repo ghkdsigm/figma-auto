@@ -106,14 +106,14 @@ function nodeLayout(n: FigmaNode): A2UILayout | undefined {
   const sizingH: string | undefined = al.layoutSizingHorizontal ?? al.primaryAxisSizingMode;
   const sizingV: string | undefined = al.layoutSizingVertical ?? al.counterAxisSizingMode;
 
+  // For code generation, favor the absolute bounding box size for visual fidelity.
+  // We still keep "fill" so that parent-driven layouts can stretch when needed.
   const width: number | "fill" | "hug" | undefined =
     sizingH === "FILL" ? "fill" :
-    sizingH === "HUG" ? "hug" :
     absW;
 
   const height: number | "fill" | "hug" | undefined =
     sizingV === "FILL" ? "fill" :
-    sizingV === "HUG" ? "hug" :
     absH;
 
   if (!hasAutoLayout && !padding.some((v) => v) && !gap && width === undefined && height === undefined) {
@@ -203,7 +203,7 @@ const shadow = drop ? (() => {
   return `${ox}px ${oy}px ${blur}px ${spread}px rgba(${r},${g},${b},${a})`;
 })() : undefined;
 
-  if (!fills && !strokes && strokeWeight === undefined && (radius === undefined || Number.isNaN(radius)) && !typography) return undefined;
+  if (!fills && !strokes && strokeWeight === undefined && !shadow && (radius === undefined || Number.isNaN(radius)) && !typography) return undefined;
 
   return {
     fills,
