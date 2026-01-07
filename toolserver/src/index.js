@@ -30,6 +30,15 @@ const tools = {
       fileKey: z.string().min(1),
       depth: z.number().int().min(1).max(6).optional()
     })
+  },
+
+  "figma.getNodes": {
+    description: "Fetch specific Figma nodes JSON by fileKey and node ids",
+    inputSchema: z.object({
+      fileKey: z.string().min(1),
+      ids: z.array(z.string().min(1)).min(1),
+      depth: z.number().int().min(1).max(6).optional()
+    })
   }
 };
 
@@ -108,6 +117,43 @@ app.post("/tools/:name/invoke", async (req, res) => {
 
       const p = (async () => {
         const r = await client.get(`/v1/files/${args.fileKey}?depth=${depth}`);
+        cacheSet(key, r.data, CACHE_TTL_MS);
+        return r.data;
+      })();
+
+      inflight.set(key, p);
+
+      try {
+        const data = await p;
+        return res.json({ ok: true, result: data, meta: { cached: false } });
+      } finally {
+        inflight.delete(key);
+      }
+    }
+
+    if (name === "figma.getNodes") {
+      const depth = args.depth ?? 3;
+      const idsJoined = args.ids.join(",");
+      const key = `figma.getNodes:fileKey=${args.fileKey}:ids=${idsJoined}:depth=${depth}`;
+
+      const cached = cacheGet(key);
+      if (cached) {
+        return res.json({ ok: true, result: cached, meta: { cached: true } });
+      }
+
+      if (inflight.has(key)) {
+        try {
+          const shared = await inflight.get(key);
+          return res.json({ ok: true, result: shared, meta: { shared: true } });
+        } catch (e) {
+          throw e;
+        }
+      }
+
+      const p = (async () => {
+        const r = await client.get(`/v1/files/${args.fileKey}/nodes`, {
+          params: { ids: idsJoined, depth }
+        });
         cacheSet(key, r.data, CACHE_TTL_MS);
         return r.data;
       })();
