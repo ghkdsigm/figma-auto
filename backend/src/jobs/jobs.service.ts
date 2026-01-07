@@ -300,10 +300,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
         if (!imp?.a2uiSpec) throw new Error("A2UI spec not found");
 
-        const policyFromJob: Policy | undefined = jobData.policy as Policy | undefined;
-        const inferredPolicy = (imp.a2uiSpec as any)?.meta?.policy as Policy | undefined;
-        const policy: Policy = policyFromJob || inferredPolicy || "TOLERANT";
-
+        const policy: Policy = (jobData.policy as Policy) || "RAW";
         const ds = this.dsMapping.map(imp.a2uiSpec as any, policy);
 
         const m = await this.prisma.dsMap.create({
@@ -324,15 +321,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (jobName === "GENERATE_CODE") {
-        const policyFromJob: Policy | undefined = jobData.policy as Policy | undefined;
+        const policy: Policy = (jobData.policy as Policy) || "RAW";
 
         const latestImport = await this.prisma.figmaImport.findFirst({
           where: { projectId: jobData.projectId },
           orderBy: { createdAt: "desc" }
         });
-
-        const inferredPolicy = (latestImport as any)?.a2uiSpec?.meta?.policy;
-        const policy: Policy = policyFromJob || (typeof inferredPolicy === "string" ? (inferredPolicy as Policy) : "TOLERANT");
 
         if (!latestImport?.a2uiSpec) throw new Error("No import found");
 

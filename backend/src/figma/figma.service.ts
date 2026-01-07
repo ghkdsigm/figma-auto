@@ -103,17 +103,6 @@ private async expandTruncatedTree(fileKey: string, document: any, depth: number)
     if (doc) {
       res.document = await this.expandTruncatedTree(fileKey, doc, d);
     }
-
-
-      // Export JSON Pro payload(exports)에도 depth truncation이 발생할 수 있어 동일하게 확장한다.
-      const exportsArr = (res as any)?.payload?.exports;
-      if (Array.isArray(exportsArr) && exportsArr.length) {
-        for (const ex of exportsArr) {
-          if (ex?.tree) {
-            ex.tree = await this.expandTruncatedTree(fileKey, ex.tree, d);
-          }
-        }
-      }
     return res;
   }
 
