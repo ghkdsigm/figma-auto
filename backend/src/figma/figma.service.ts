@@ -6,123 +6,109 @@ import { McpClient } from "../mcp/mcp.client";
 export class FigmaService {
   constructor(private readonly mcp: McpClient) {}
 
-  // Toolserver (and our Zod schema) currently clamps depth to <= 6.
-  // Deeply nested frames (common for selects/checkbox groups) can still be truncated.
-  // We work around that by recursively expanding "empty" container nodes via additional getNodes calls.
   private readonly defaultDepth = 6;
   private readonly minDepth = 1;
   private readonly maxDepth = 6;
-
-  // How many recursive expansion passes to attempt.
-  // 0 = no expansion, 1~3 is usually enough for real-world Figma nesting.
-  private readonly expandRounds = Number(process.env.FIGMA_EXPAND_ROUNDS ?? 2);
-
-  // Safety cap: maximum number of node ids we will expand per import.
-  private readonly expandMaxNodes = Number(process.env.FIGMA_EXPAND_MAX_NODES ?? 200);
 
   private normalizeDepth(depth?: number): number {
     const raw = typeof depth === "number" && Number.isFinite(depth) ? Math.trunc(depth) : this.defaultDepth;
     return Math.min(this.maxDepth, Math.max(this.minDepth, raw));
   }
 
-  private isExpandableContainer(n: any): boolean {
-    const t = String(n?.type ?? "");
-    if (!["FRAME", "GROUP", "COMPONENT", "INSTANCE"].includes(t)) return false;
-    const children = n?.children;
-    if (!Array.isArray(children)) return false;
-    return children.length === 0;
-  }
+private isContainerNode(n: any): boolean {
+  const t = String(n?.type || "");
+  return ["FRAME", "GROUP", "INSTANCE", "COMPONENT", "COMPONENT_SET"].includes(t);
+}
 
-  private collectExpandableIds(root: any): string[] {
-    const out: string[] = [];
-    const stack: any[] = [root];
+private collectExpandableIds(root: any, max: number, seen: Set<string>): string[] {
+  const out: string[] = [];
+  const stack: any[] = [root];
 
-    while (stack.length) {
-      const n = stack.pop();
-      if (!n) continue;
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n) continue;
+    if (out.length >= max) break;
 
-      if (this.isExpandableContainer(n) && typeof n.id === "string" && n.id) {
-        out.push(n.id);
-      }
+    const id = n?.id ? String(n.id) : "";
+    const children = Array.isArray(n?.children) ? n.children : null;
 
-      const children = n?.children;
-      if (Array.isArray(children) && children.length) {
-        for (let i = children.length - 1; i >= 0; i -= 1) stack.push(children[i]);
-      }
+    // Figma API depth 제한에 걸리면 중간 컨테이너(주로 FRAME/GROUP/INSTANCE 등)가
+    // children: [] 형태로 truncate 된다. 이름 규칙에 의존하지 말고,
+    // 컨테이너 + 빈 children 을 확장 대상으로 본다.
+    if (id && !seen.has(id) && this.isContainerNode(n) && children && children.length === 0) {
+      out.push(id);
+      seen.add(id);
     }
 
-    return out;
+    if (children && children.length) {
+      for (const c of children) stack.push(c);
+    }
   }
 
-  private replaceNodeById(root: any, id: string, nextNode: any): boolean {
-    if (!root) return false;
-    const stack: any[] = [root];
+  return out;
+}
 
-    while (stack.length) {
-      const n = stack.pop();
-      const children = n?.children;
-      if (!Array.isArray(children) || !children.length) continue;
+private replaceSubtree(root: any, replacements: Record<string, any>) {
+  const stack: any[] = [root];
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n) continue;
 
-      for (let i = 0; i < children.length; i += 1) {
-        const c = children[i];
-        if (c?.id === id) {
-          children[i] = nextNode;
-          return true;
-        }
-        stack.push(c);
-      }
+    const id = n?.id ? String(n.id) : "";
+    if (id && replacements[id]) {
+      const rep = replacements[id];
+      // children 만 갈아끼우면 style/effects 등이 업데이트되지 않아
+      // shadow/line/vector 등이 누락되는 케이스가 있었다.
+      // 동일 id 노드는 전체 필드를 in-place로 덮어쓴다.
+      const keepId = n.id;
+      for (const k of Object.keys(n)) delete (n as any)[k];
+      Object.assign(n, rep);
+      n.id = keepId;
     }
 
-    return false;
+    const children = Array.isArray(n?.children) ? n.children : [];
+    for (const c of children) stack.push(c);
   }
+}
 
-  private async expandDeepNodes(fileKey: string, documentRoot: any, depth: number): Promise<any> {
-    if (!documentRoot || this.expandRounds <= 0) return documentRoot;
+private async expandTruncatedTree(fileKey: string, document: any, depth: number): Promise<any> {
+  const rounds = Number(process.env.FIGMA_EXPAND_ROUNDS ?? 2);
+  const maxNodes = Number(process.env.FIGMA_EXPAND_MAX_NODES ?? 200);
 
-    const visited = new Set<string>();
-    let expandedCount = 0;
+  let current = document;
+  const seen = new Set<string>();
 
-    for (let round = 0; round < this.expandRounds; round += 1) {
-      const candidates = this.collectExpandableIds(documentRoot)
-        .filter((id) => !visited.has(id));
+  for (let r = 0; r < rounds; r++) {
+    const ids = this.collectExpandableIds(current, maxNodes, seen);
+    if (!ids.length) break;
 
-      if (!candidates.length) break;
+    const res = await this.mcp.invokeTool("figma.getNodes", { fileKey, ids, depth });
+    const replacements: Record<string, any> = {};
 
-      // Chunk to avoid very large requests.
-      const chunkSize = 50;
-      for (let i = 0; i < candidates.length; i += chunkSize) {
-        const chunk = candidates.slice(i, i + chunkSize);
-        chunk.forEach((id) => visited.add(id));
-
-        const res = await this.mcp.invokeTool("figma.getNodes", {
-          fileKey,
-          ids: chunk,
-          depth
-        });
-
-        for (const id of chunk) {
-          const doc = res?.nodes?.[id]?.document;
-          if (!doc) continue;
-
-          // Replace the truncated container node with the freshly fetched subtree.
-          this.replaceNodeById(documentRoot, id, doc);
-          expandedCount += 1;
-          if (expandedCount >= this.expandMaxNodes) return documentRoot;
-        }
-      }
+    for (const id of ids) {
+      const doc = res?.nodes?.[id]?.document;
+      if (doc) replacements[id] = doc;
     }
 
-    return documentRoot;
+    this.replaceSubtree(current, replacements);
   }
+
+  return current;
+}
 
   async importFile(fileKey: string, depth?: number): Promise<any> {
     const d = this.normalizeDepth(depth);
     const res = await this.mcp.invokeTool("figma.getFile", { fileKey, depth: d });
+    const doc = res?.document;
+    if (doc) {
+      res.document = await this.expandTruncatedTree(fileKey, doc, d);
+    }
     return res;
   }
 
   async importNodes(fileKey: string, nodeIds: string[], depth?: number): Promise<any> {
     const d = this.normalizeDepth(depth);
+
     const res = await this.mcp.invokeTool("figma.getNodes", {
       fileKey,
       ids: nodeIds,
@@ -132,17 +118,21 @@ export class FigmaService {
     // 단일 노드면 해당 document만 반환
     if (nodeIds.length === 1) {
       const id = nodeIds[0];
-      let doc = res?.nodes?.[id]?.document;
-      if (doc) doc = await this.expandDeepNodes(fileKey, doc, d);
-      if (doc) return { document: doc };
+      const doc = res?.nodes?.[id]?.document;
+      if (doc) {
+        const expanded = await this.expandTruncatedTree(fileKey, doc, d);
+        return { document: expanded };
+      }
     }
 
     // 여러 노드면 루트로 감싸서 반환
-    const docs = [] as any[];
-    for (const id of nodeIds) {
-      let doc = res?.nodes?.[id]?.document;
-      if (doc) doc = await this.expandDeepNodes(fileKey, doc, d);
-      if (doc) docs.push(doc);
+    const docs = nodeIds
+      .map((id) => res?.nodes?.[id]?.document)
+      .filter(Boolean);
+
+    const expandedDocs = [] as any[];
+    for (const doc of docs) {
+      expandedDocs.push(await this.expandTruncatedTree(fileKey, doc, d));
     }
 
     return {
@@ -150,7 +140,7 @@ export class FigmaService {
         id: "A2UI_NODES_ROOT",
         name: "selected-nodes",
         type: "FRAME",
-        children: docs
+        children: expandedDocs
       }
     };
   }

@@ -210,7 +210,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (jobName === "INGEST_FIGMA") {
-        const raw = jobData.nodeIds?.length  ? await this.figma.importNodes(jobData.fileKey, jobData.nodeIds) : await this.figma.importFile(jobData.fileKey);
+        const raw = jobData.nodeIds?.length
+          ? await this.figma.importNodes(jobData.fileKey, jobData.nodeIds, jobData.depth)
+          : await this.figma.importFile(jobData.fileKey, jobData.depth);
 
         const imp = await this.prisma.figmaImport.create({
           data: {
@@ -272,7 +274,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
 
         if (!imp) throw new Error("Import not found");
 
-        const spec = this.a2ui.fromFigma(imp.rawJson, jobData.fileKey);
+        const spec = this.a2ui.fromFigma(imp.rawJson, jobData.fileKey, (jobData.policy as any) || "RAW");
 
         await this.prisma.figmaImport.update({
           where: { id: imp.id },
@@ -416,15 +418,15 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`Worker started. queue=${QUEUE_NAME}`);
   }
 
-  async enqueueImportFigma(projectId: string, fileKey: string, nodeIds?: string[]) {
+  async enqueueImportFigma(projectId: string, fileKey: string, nodeIds?: string[], policy: Policy = "RAW", depth?: number) {
     await this.ensureProjectExists(projectId);
     await this.ensureWorkerStarted();
   
     const dbJob = await this.prisma.job.create({
-      data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey, nodeIds } }
+      data: { projectId, type: "INGEST_FIGMA", status: "QUEUED", input: { fileKey, nodeIds, policy, depth } }
     });
   
-    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey, nodeIds });
+    await this.queue!.add("INGEST_FIGMA", { dbJobId: dbJob.id, projectId, fileKey, nodeIds, policy, depth });
   
     return { ok: true, job: dbJob };
   }

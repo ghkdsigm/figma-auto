@@ -1,11 +1,14 @@
 export type A2UIVersion = "0.2";
 
+export type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
+
 export type A2UIRoot = {
   version: A2UIVersion;
   meta: {
     generatedAt: string;
     source: "figma";
     fileKey?: string;
+    policy?: Policy;
   };
   tree: A2UINode;
   diagnostics: A2UIDiagnostic[];
@@ -48,6 +51,7 @@ export type A2UIStyle = {
   strokes?: Array<{ type: "solid"; color: A2UIColor }>;
   strokeWeight?: number;
   radius?: number;
+  shadow?: string;
   typography?: {
     fontSize: number;
     fontWeight: number;

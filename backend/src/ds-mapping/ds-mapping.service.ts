@@ -164,24 +164,155 @@ export class DsMappingService {
     return this.unsafeFallback(n, policy, diagnostics, "UNSUPPORTED_NODE");
   }
 
+  
+  private buildRawFrameClasses(n: any): string[] {
+    const classes: string[] = [];
+    const l = n.layout || {};
+
+    if ((l.display || "flex") === "flex") {
+      classes.push("flex");
+      if (l.direction === "row") classes.push("flex-row");
+      else classes.push("flex-col");
+
+      if (l.justify === "center") classes.push("justify-center");
+      else if (l.justify === "end") classes.push("justify-end");
+      else if (l.justify === "between") classes.push("justify-between");
+      else classes.push("justify-start");
+
+      if (l.align === "center") classes.push("items-center");
+      else if (l.align === "end") classes.push("items-end");
+      else if (l.align === "stretch") classes.push("items-stretch");
+      else classes.push("items-start");
+
+      const gapCls = clsPx("gap", l.gap);
+      if (gapCls) classes.push(gapCls);
+    }
+
+    if (l.width === "fill") classes.push("w-full");
+    else {
+      const wCls = clsPx("w", l.width);
+      if (wCls) classes.push(wCls);
+    }
+
+    if (l.height === "fill") classes.push("h-full");
+    else {
+      const hCls = clsPx("h", l.height);
+      if (hCls) classes.push(hCls);
+    }
+
+    const p = Array.isArray(l.padding) ? l.padding : undefined;
+    if (p && p.length === 4) {
+      const names = ["pt", "pr", "pb", "pl"] as const;
+      for (let i = 0; i < 4; i++) {
+        const cls = clsPx(names[i], p[i]);
+        if (cls) classes.push(cls);
+      }
+    }
+
+    const fills = n.style?.fills || [];
+    const bgCls = clsHexBg(fills[0]);
+    if (bgCls) classes.push(bgCls);
+
+    const radius = px(n.style?.radius);
+    if (radius !== undefined) classes.push(`rounded-[${radius}px]`);
+
+    const strokes = n.style?.strokes || [];
+    const strokeW = px(n.style?.strokeWeight);
+    const borderColorCls = clsHexBorder(strokes[0]);
+    if (strokes.length > 0) {
+      classes.push("border");
+      if (borderColorCls) classes.push(borderColorCls);
+      if (strokeW !== undefined && strokeW !== 1) classes.push(`border-[${strokeW}px]`);
+    }
+
+    const shadow = n.style?.shadow;
+    if (shadow) classes.push(`shadow-[${String(shadow).replace(/ /g, "_")}]`);
+
+    return classes;
+  }
+
+  private buildRawTextClassesFromNode(n: any): string[] {
+    const classes: string[] = [];
+    const t = n.style?.typography || {};
+
+    const fontSize = px(t.fontSize) ?? 16;
+    const fontWeight = px(t.fontWeight);
+    const lineHeight = px(t.lineHeight);
+    const letterSpacing = px(t.letterSpacing);
+    const fontFamily = String(t.fontFamily || "").trim();
+
+    classes.push(`text-[${fontSize}px]`);
+    if (fontWeight !== undefined) classes.push(`font-[${fontWeight}]`);
+    if (lineHeight !== undefined) classes.push(`leading-[${lineHeight}px]`);
+    if (letterSpacing !== undefined) classes.push(`tracking-[${letterSpacing}px]`);
+    if (fontFamily) {
+      const safeFamily = fontFamily.replace(/"/g, "");
+      classes.push(`font-["${safeFamily}"]`);
+    }
+
+    const fill = n.style?.fills?.[0];
+    const textCls = clsHexText(fill);
+    if (textCls) classes.push(textCls);
+
+    return classes;
+  }
+
+
+  
   private mapButton(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
     if (policy === "RAW") {
+      const btnClasses = this.buildRawFrameClasses(n);
+      const labelClasses = this.buildRawTextClassesFromNode({
+        style: {
+          typography: n.style?.typography,
+          fills: n.style?.labelFills || n.style?.fills
+        }
+      });
+
       return {
         id: n.id,
         ref: n.ref,
         kind: "element",
         name: "button",
-        classes: [],
+        classes: btnClasses,
+        props: {},
         children: [
           {
             id: `${n.id}_label`,
+            ref: n.ref,
             kind: "element",
             name: "span",
             props: { text: String(n.label || "") },
-            classes: [],
-            children: [],
-            ref: n.ref
+            classes: labelClasses,
+            children: []
           }
+        ]
+      };
+    }
+
+    const intent = n.intent || "primary";
+    const size = n.size || "md";
+
+    if (!["primary", "secondary", "danger"].includes(intent)) {
+      pushDiag(diagnostics, {
+        severity: policy === "STRICT" ? "error" : "warn",
+        code: "DS_BUTTON_INTENT_UNKNOWN",
+        message: `알 수 없는 버튼 intent: ${intent}`,
+        nodeId: n.id,
+        ref: n.ref,
+        suggestion: { action: "map_to_nearest", detail: "primary로 폴백" }
+      });
+    }
+
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "component",
+      name: "BaseButton",
+      props: { intent: ["primary", "secondary", "danger"].includes(intent) ? intent : "primary", size, label: n.label }
+    };
+  }
+
         ],
         props: {}
       };
@@ -366,6 +497,12 @@ export class DsMappingService {
         if (strokeW !== undefined && strokeW !== 1) {
           classes.push(`border-[${strokeW}px]`);
         }
+      }
+
+      const shadow = n.style?.shadow;
+      if (shadow) {
+        const v = String(shadow).replace(/ /g, "_");
+        classes.push(`shadow-[${v}]`);
       }
 
       return {

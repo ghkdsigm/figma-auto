@@ -4,6 +4,8 @@ import { A2UIRoot, A2UINode, A2UIDiagnostic, A2UIRef, A2UILayout, A2UIStyle, A2U
 
 type FigmaNode = any;
 
+type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
+
 function clamp01(x: number) {
   if (Number.isNaN(x)) return 0;
   if (x < 0) return 0;
@@ -186,11 +188,27 @@ function nodeStyle(n: FigmaNode): A2UIStyle | undefined {
     fontFamily: n.style.fontFamily ? String(n.style.fontFamily) : undefined
   } : undefined);
 
+const effects = Array.isArray((n as any)?.effects) ? (n as any).effects : [];
+const drop = effects.find((e: any) => e?.type === "DROP_SHADOW" && e?.visible !== false);
+const shadow = drop ? (() => {
+  const ox = Number(drop?.offset?.x ?? 0);
+  const oy = Number(drop?.offset?.y ?? 0);
+  const blur = Number(drop?.radius ?? 0);
+  const spread = Number(drop?.spread ?? 0);
+  const c = drop?.color;
+  const a = c?.a !== undefined ? Number(c.a) : 0.2;
+  const r = c?.r !== undefined ? Math.round(Number(c.r) * 255) : 0;
+  const g = c?.g !== undefined ? Math.round(Number(c.g) * 255) : 0;
+  const b = c?.b !== undefined ? Math.round(Number(c.b) * 255) : 0;
+  return `${ox}px ${oy}px ${blur}px ${spread}px rgba(${r},${g},${b},${a})`;
+})() : undefined;
+
   if (!fills && !strokes && strokeWeight === undefined && (radius === undefined || Number.isNaN(radius)) && !typography) return undefined;
 
   return {
     fills,
     strokes,
+    shadow,
     strokeWeight: Number.isFinite(strokeWeight as any) ? strokeWeight : undefined,
     radius: Number.isFinite(radius as any) ? radius : undefined,
     typography: typography && Number.isFinite(typography.fontSize) && typography.fontSize > 0 ? typography : undefined
@@ -206,11 +224,13 @@ function isButtonText(txt: string) {
   return false;
 }
 
-function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[]): A2UINode | null {
+function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[], opts?: { policy?: Policy; parentExportId?: string }): A2UINode | null {
   if (!n) return null;
 
   const type = String(n.type || "");
   const id = String(n.id || uuid());
+  const parentExportId = opts?.parentExportId;
+  const exportOwnerId = id.startsWith("I") && id.includes(";") && parentExportId ? parentExportId : id;
 
   const base = {
     id,
@@ -220,9 +240,12 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
     style: nodeStyle(n)
   };
 
+  if (base.ref) base.ref.figmaNodeId = exportOwnerId;
+
+
   if (["DOCUMENT", "CANVAS", "FRAME", "COMPONENT", "INSTANCE", "GROUP"].includes(type)) {
     const children = (n.children || [])
-      .map((c: any) => fromNode(c, [...namePath, String(c?.name ?? c?.type ?? "node")], diagnostics))
+      .map((c: any) => fromNode(c, [...namePath, String(c?.name ?? c?.type ?? "node")], diagnostics, { policy: opts?.policy, parentExportId: exportOwnerId }))
       .filter(Boolean) as A2UINode[];
 
     return { ...base, type: "frame", children };
@@ -230,7 +253,7 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
 
   if (type === "TEXT") {
     const txt = String(n.characters || n.text?.characters || "");
-    if (isButtonText(txt)) {
+    if ((opts?.policy ?? "RAW") !== "RAW" && isButtonText(txt)) {
       diagnostics.push({
         severity: "info",
         code: "HEURISTIC_BUTTON_TEXT",
@@ -244,18 +267,59 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
     return { ...base, type: "text", text: txt };
   }
 
+// ICON_ONLY_INSTANCE:
+// If a container consists only of vector-like children, export the container once as an image.
+if (Array.isArray(n?.children) && n.children.length > 0) {
+  const vectorLike = ["VECTOR", "STAR", "ELLIPSE"];
+  const allVectorLike = n.children.every((c: any) => vectorLike.includes(String(c?.type || "")));
+  if (allVectorLike) {
+    return {
+      ...base,
+      type: "image",
+      ref: { ...base.ref, figmaNodeId: exportOwnerId },
+      layout: base.layout
+    };
+  }
+}
+
   if (type === "VECTOR" || type === "STAR" || type === "ELLIPSE") {
     // Export JSON Pro로 들어온 VECTOR 계열은 실제로 아이콘/패스가 대부분이며,
     // RAW 정책에서도 그대로 보이도록 렌더링 이미지로 취급한다.
     return {
       ...base,
-      type: "image"
+      type: "image",
+      // Instance 내부 벡터(I...;...)는 Images API에서 직접 export가 안 되는 경우가 많다.
+      // 이때는 상위 exportOwnerId(대개 INSTANCE/COMPONENT id)로 export한다.
+      ref: { ...base.ref, figmaNodeId: exportOwnerId }
     };
   }
 
-  if (type === "RECTANGLE") {
+if (type === "LINE") {
+  const stroke = pickSolidPaints(n?.strokes)?.[0];
+  const strokeWeight = n?.strokeWeight !== undefined ? Number(n.strokeWeight) : 1;
+  const fills = stroke ? [{ type: "solid", color: stroke.color }] : undefined;
+
+  return {
+    ...base,
+    type: "frame",
+    style: {
+      ...base.style,
+      fills,
+      strokes: undefined,
+      strokeWeight: undefined
+    },
+    layout: {
+      ...base.layout,
+      height: Math.max(1, Math.round(strokeWeight || 1))
+    },
+    children: []
+  };
+}
+
+if (type === "RECTANGLE") {
     const fills = base.style?.fills;
     const strokes = base.style?.strokes;
+
     const looksLikeImage = (n.fills || []).some((p: any) => p?.type === "IMAGE");
     if (looksLikeImage) {
       return {
@@ -264,12 +328,9 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
         srcRef: n.fills?.[0]?.imageRef ? { figmaImageRef: String(n.fills[0].imageRef) } : undefined
       };
     }
-    // Many UI primitives (checkbox borders, select outlines, dividers) are stroke-only rectangles.
-    // If we drop rectangles without fills, those controls disappear in RAW output.
-    const hasFills = Array.isArray(fills) && fills.length > 0;
-    const hasStrokes = Array.isArray(strokes) && strokes.length > 0;
-
-    if (hasFills || hasStrokes) {
+    const hasFill = Boolean(fills && fills.length);
+    const hasStroke = Boolean(strokes && strokes.length);
+    if (hasFill || hasStroke) {
       return { ...base, type: "frame", children: [] };
     }
     return null;
@@ -291,7 +352,7 @@ function extractExportJsonProTrees(fileJson: any): Array<{ name: string; tree: a
 
 @Injectable()
 export class A2uiService {
-  fromFigma(fileJson: any, fileKey?: string): A2UIRoot {
+  fromFigma(fileJson: any, fileKey?: string, policy: Policy = "RAW"): A2UIRoot {
     const diagnostics: A2UIDiagnostic[] = [];
 
     const exportTrees = extractExportJsonProTrees(fileJson);
@@ -300,7 +361,7 @@ export class A2uiService {
 
     if (exportTrees.length) {
       const children = exportTrees
-        .map((ex) => fromNode(ex.tree, [ex.name], diagnostics))
+        .map((ex) => fromNode(ex.tree, [ex.name], diagnostics, { policy, parentExportId: String(ex?.tree?.id || "") }))
         .filter(Boolean) as A2UINode[];
 
       rootNode = {
@@ -315,7 +376,7 @@ export class A2uiService {
       const docName = String(fileJson?.document?.name ?? fileJson?.payload?.meta?.pageName ?? "document");
 
       rootNode =
-        fromNode(doc, [docName], diagnostics)
+        fromNode(doc, [docName], diagnostics, { policy, parentExportId: String(doc?.id || "") })
         || ({
           id: uuid(),
           type: "frame",
