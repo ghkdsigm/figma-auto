@@ -78,4 +78,9 @@ export class JobsController {
     const p = await this.jobs.getArtifactPath(projectId, artifactId);
     res.download(p);
   }
+
+  @Get("artifacts/:artifactId/sources")
+  sources(@Param("projectId") projectId: string, @Param("artifactId") artifactId: string) {
+    return this.jobs.getArtifactSources(projectId, artifactId);
+  }
 }

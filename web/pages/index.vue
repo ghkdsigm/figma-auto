@@ -110,7 +110,13 @@
             <div class="font-mono">{{ a.id }}</div>
             <div class="text-slate-600">목표: {{ a.target }}</div>
           </div>
-          <button @click="downloadArtifact(a.id)" class="px-4 py-2 rounded-lg bg-blue-600 text-white">다운로드</button>
+          <div class="flex items-center gap-2">
+            <NuxtLink
+              :to="`/preview?projectId=${project.id}&artifactId=${a.id}`"
+              class="px-4 py-2 rounded-lg border"
+            >미리보기</NuxtLink>
+            <button @click="downloadArtifact(a.id)" class="px-4 py-2 rounded-lg bg-blue-600 text-white">다운로드</button>
+          </div>
         </li>
       </ul>
     </section>

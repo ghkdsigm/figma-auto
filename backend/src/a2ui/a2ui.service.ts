@@ -244,7 +244,16 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
     return { ...base, type: "text", text: txt };
   }
 
-  if (type === "RECTANGLE" || type === "VECTOR" || type === "STAR" || type === "ELLIPSE") {
+  if (type === "VECTOR" || type === "STAR" || type === "ELLIPSE") {
+    // Export JSON Pro로 들어온 VECTOR 계열은 실제로 아이콘/패스가 대부분이며,
+    // RAW 정책에서도 그대로 보이도록 렌더링 이미지로 취급한다.
+    return {
+      ...base,
+      type: "image"
+    };
+  }
+
+  if (type === "RECTANGLE") {
     const fills = base.style?.fills;
     const looksLikeImage = (n.fills || []).some((p: any) => p?.type === "IMAGE");
     if (looksLikeImage) {

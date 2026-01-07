@@ -40,6 +40,17 @@ const tools = {
       depth: z.number().int().min(1).max(6).optional()
     })
   }
+
+  ,
+  "figma.getImages": {
+    description: "Fetch rendered image URLs for specific node ids (Figma Images API)",
+    inputSchema: z.object({
+      fileKey: z.string().min(1),
+      ids: z.array(z.string().min(1)).min(1),
+      format: z.enum(["png", "jpg", "svg"]).optional(),
+      scale: z.number().min(0.1).max(4).optional()
+    })
+  }
 };
 
 const inflight = new Map();
@@ -160,6 +171,39 @@ app.post("/tools/:name/invoke", async (req, res) => {
 
       inflight.set(key, p);
 
+      try {
+        const data = await p;
+        return res.json({ ok: true, result: data, meta: { cached: false } });
+      } finally {
+        inflight.delete(key);
+      }
+    }
+
+    if (name === "figma.getImages") {
+      const idsJoined = args.ids.join(",");
+      const format = String(args.format || "png");
+      const scale = args.scale ?? 2;
+      const key = `figma.getImages:fileKey=${args.fileKey}:ids=${idsJoined}:format=${format}:scale=${scale}`;
+
+      const cached = cacheGet(key);
+      if (cached) {
+        return res.json({ ok: true, result: cached, meta: { cached: true } });
+      }
+
+      if (inflight.has(key)) {
+        const shared = await inflight.get(key);
+        return res.json({ ok: true, result: shared, meta: { shared: true } });
+      }
+
+      const p = (async () => {
+        const r = await client.get(`/v1/images/${args.fileKey}`, {
+          params: { ids: idsJoined, format, scale }
+        });
+        cacheSet(key, r.data, CACHE_TTL_MS);
+        return r.data;
+      })();
+
+      inflight.set(key, p);
       try {
         const data = await p;
         return res.json({ ok: true, result: data, meta: { cached: false } });

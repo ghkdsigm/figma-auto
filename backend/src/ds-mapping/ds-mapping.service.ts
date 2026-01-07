@@ -133,7 +133,7 @@ export class DsMappingService {
 
     const out: DSRoot = {
       version: "0.1",
-      meta: { generatedAt: new Date().toISOString(), policy },
+      meta: { generatedAt: new Date().toISOString(), policy, fileKey: root?.meta?.fileKey },
       tree,
       diagnostics
     };
@@ -165,6 +165,28 @@ export class DsMappingService {
   }
 
   private mapButton(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    if (policy === "RAW") {
+      return {
+        id: n.id,
+        ref: n.ref,
+        kind: "element",
+        name: "button",
+        classes: [],
+        children: [
+          {
+            id: `${n.id}_label`,
+            kind: "element",
+            name: "span",
+            props: { text: String(n.label || "") },
+            classes: [],
+            children: [],
+            ref: n.ref
+          }
+        ],
+        props: {}
+      };
+    }
+
     const intent = n.intent || "primary";
     const size = n.size || "md";
 
@@ -265,12 +287,14 @@ export class DsMappingService {
   }
 
   private mapImage(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+    const nodeId = n?.ref?.figmaNodeId ? String(n.ref.figmaNodeId) : "";
+    const placeholder = nodeId ? `__FIGMA_NODE__:${nodeId}` : "";
     return {
       id: n.id,
       ref: n.ref,
       kind: "element",
       name: "img",
-      props: { alt: n.name || "", src: "" },
+      props: { alt: n.name || "", src: placeholder },
       classes: ["rounded"]
     };
   }

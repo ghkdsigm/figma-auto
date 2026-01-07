@@ -34,6 +34,11 @@
         <summary class="cursor-pointer">Debug (dsSpec)</summary>
         <pre class="mt-2 p-3 bg-slate-50 border rounded-lg whitespace-pre-wrap">{{ pretty }}</pre>
       </details>
+
+      <details v-if="sources" class="text-xs text-slate-600">
+        <summary class="cursor-pointer">Debug (generated sources)</summary>
+        <pre class="mt-2 p-3 bg-slate-50 border rounded-lg whitespace-pre-wrap">{{ prettySources }}</pre>
+      </details>
     </div>
   </div>
 </template>
@@ -57,12 +62,15 @@ const route = useRoute();
 
 const projectId = ref<string>(String(route.query.projectId || ""));
 const policy = ref<string>(String(route.query.policy || "RAW"));
+const artifactId = ref<string>(String(route.query.artifactId || ""));
 
 const error = ref<string>("");
 const root = ref<any>(null);
 const raw = ref<any>(null);
+const sources = ref<any>(null);
 
 const pretty = computed(() => (raw.value ? JSON.stringify(raw.value, null, 2) : ""));
+const prettySources = computed(() => (sources.value ? JSON.stringify(sources.value, null, 2) : ""));
 
 function getToken() {
   if (process.client) return localStorage.getItem("a2ui_token") || "";
@@ -73,6 +81,7 @@ async function loadLatest() {
   error.value = "";
   root.value = null;
   raw.value = null;
+  sources.value = null;
 
   if (!projectId.value) {
     if (process.client) {
@@ -93,14 +102,25 @@ async function loadLatest() {
   }
 
   try {
-    const data: any = await $fetch(`/projects/${projectId.value}/maps/latest?policy=${encodeURIComponent(policy.value)}`, {
-      baseURL: "http://localhost:3000",
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    if (artifactId.value) {
+      const data: any = await $fetch(`/projects/${projectId.value}/artifacts/${artifactId.value}/sources`, {
+        baseURL: "http://localhost:3000",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      raw.value = data?.dsSpec || null;
+      root.value = data?.dsSpec?.tree || null;
+      sources.value = data?.files || null;
+    } else {
+      const data: any = await $fetch(`/projects/${projectId.value}/maps/latest?policy=${encodeURIComponent(policy.value)}`, {
+        baseURL: "http://localhost:3000",
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-    const map = data?.map;
-    raw.value = map?.dsSpec || null;
-    root.value = map?.dsSpec?.tree || null;
+      const map = data?.map;
+      raw.value = map?.dsSpec || null;
+      root.value = map?.dsSpec?.tree || null;
+      sources.value = null;
+    }
   } catch (e: any) {
     error.value = e?.message || String(e);
   }

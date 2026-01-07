@@ -483,6 +483,18 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return a.outputZip;
   }
 
+  async getArtifactSources(projectId: string, artifactId: string) {
+    const a = await this.prisma.codeArtifact.findFirst({ where: { id: artifactId, projectId } });
+    if (!a) throw new NotFoundException("artifact not found");
+    const dsRoot = a.dsSpec as any;
+    return {
+      ok: true,
+      target: a.target,
+      dsSpec: dsRoot,
+      files: this.codegen.renderVueSources(dsRoot, a.target)
+    };
+  }
+
   async getLatestImport(projectId: string) {
     const imp = await this.prisma.figmaImport.findFirst({
       where: { projectId },
