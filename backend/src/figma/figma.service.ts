@@ -6,16 +6,28 @@ import { McpClient } from "../mcp/mcp.client";
 export class FigmaService {
   constructor(private readonly mcp: McpClient) {}
 
+  private readonly defaultDepth = 6;
+  private readonly minDepth = 1;
+  private readonly maxDepth = 6;
+
+  private normalizeDepth(depth?: number): number {
+    const raw = typeof depth === "number" && Number.isFinite(depth) ? Math.trunc(depth) : this.defaultDepth;
+    return Math.min(this.maxDepth, Math.max(this.minDepth, raw));
+  }
+
   async importFile(fileKey: string, depth?: number): Promise<any> {
-    const res = await this.mcp.invokeTool("figma.getFile", { fileKey, depth });
+    const d = this.normalizeDepth(depth);
+    const res = await this.mcp.invokeTool("figma.getFile", { fileKey, depth: d });
     return res;
   }
 
   async importNodes(fileKey: string, nodeIds: string[], depth?: number): Promise<any> {
+    const d = this.normalizeDepth(depth);
+
     const res = await this.mcp.invokeTool("figma.getNodes", {
       fileKey,
       ids: nodeIds,
-      depth
+      depth: d
     });
 
     // 단일 노드면 해당 document만 반환
