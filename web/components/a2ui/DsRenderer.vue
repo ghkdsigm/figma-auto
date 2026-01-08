@@ -17,7 +17,7 @@
     </div>
 
     <!-- Raw elements -->
-    <component v-else :is="tag" :class="cls">
+    <component v-else :is="tag" :class="cls" v-bind="boundProps">
       <template v-if="isText">
         {{ textContent }}
       </template>
@@ -58,6 +58,15 @@ const tag = computed(() => {
 });
 
 const cls = computed(() => (node.value?.classes || []).join(" "));
+
+// Bind element props (e.g. img src/alt) while avoiding leaking "text" as an attribute.
+const boundProps = computed(() => {
+  const p = node.value?.props || {};
+  if (!p || typeof p !== "object") return {};
+  const out: Record<string, any> = { ...p };
+  if (typeof out.text === "string") delete out.text;
+  return out;
+});
 
 const isText = computed(() => {
   if (!node.value) return false;

@@ -327,13 +327,31 @@ export class DsMappingService {
   private mapImage(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
     const nodeId = n?.ref?.figmaNodeId ? String(n.ref.figmaNodeId) : "";
     const placeholder = nodeId ? `__FIGMA_NODE__:${nodeId}` : "";
+
+    // Preserve basic geometry in RAW mode so images don't collapse.
+    const classes: string[] = ["object-cover"];
+    const l = n.layout || {};
+    if (l.width === "fill") classes.push("w-full");
+    else {
+      const wCls = clsPx("w", l.width);
+      if (wCls) classes.push(wCls);
+    }
+    if (l.height === "fill") classes.push("h-full");
+    else {
+      const hCls = clsPx("h", l.height);
+      if (hCls) classes.push(hCls);
+    }
+    const radius = px(n.style?.radius);
+    if (radius !== undefined) classes.push(`rounded-[${radius}px]`);
+    else classes.push("rounded");
+
     return {
       id: n.id,
       ref: n.ref,
       kind: "element",
       name: "img",
       props: { alt: n.name || "", src: placeholder },
-      classes: ["rounded"]
+      classes
     };
   }
 

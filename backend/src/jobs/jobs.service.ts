@@ -486,7 +486,16 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   async getArtifactSources(projectId: string, artifactId: string) {
     const a = await this.prisma.codeArtifact.findFirst({ where: { id: artifactId, projectId } });
     if (!a) throw new NotFoundException("artifact not found");
-    const dsRoot = a.dsSpec as any;
+    // Avoid mutating the stored artifact JSON when rewriting image urls for preview.
+    const dsRoot = JSON.parse(JSON.stringify(a.dsSpec as any));
+
+    // Preview does not serve generated zip assets; rewrite img src to Figma CDN urls.
+    // If it fails (missing FIGMA_TOKEN, rate limit, etc.), preview will fall back to existing src.
+    try {
+      await this.codegen.resolveFigmaAssetUrls(dsRoot as any);
+    } catch {
+      // ignore preview-only asset resolution failures
+    }
     return {
       ok: true,
       target: a.target,
@@ -515,7 +524,18 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: "desc" }
     });
 
-    return { ok: true, map };
+    if (!map) return { ok: true, map: null };
+
+    // Preview uses maps/latest and does not serve generated zip assets.
+    // Rewrite img src to Figma CDN urls without mutating persisted dsSpec.
+    const dsRoot = JSON.parse(JSON.stringify(map.dsSpec as any));
+    try {
+      await this.codegen.resolveFigmaAssetUrls(dsRoot as any);
+    } catch {
+      // ignore preview-only asset resolution failures
+    }
+
+    return { ok: true, map: { ...map, dsSpec: dsRoot } };
   }
 
   private findNodeById(root: any, id: string): any | null {

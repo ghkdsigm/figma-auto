@@ -541,6 +541,55 @@ export class CodegenService {
     for (const c of node.children || []) this.collectImageNodeIds(c, out);
   }
 
+  // Preview helper: rewrite img src to Figma-rendered CDN URLs so the web preview can display
+  // images without needing the generated zip's local assets.
+  async resolveFigmaAssetUrls(dsRoot: DSRoot): Promise<void> {
+    const fileKey = dsRoot?.meta?.fileKey;
+    if (!fileKey) return;
+
+    const ids = new Set<string>();
+    this.collectImageNodeIds(dsRoot.tree, ids);
+    if (ids.size === 0) return;
+
+    const idList = Array.from(ids);
+    const chunks: string[][] = [];
+    for (let i = 0; i < idList.length; i += 50) chunks.push(idList.slice(i, i + 50));
+
+    const idToUrl = new Map<string, string>();
+    for (const chunk of chunks) {
+      try {
+        const r: any = await this.mcp.invokeTool("figma.getImages", {
+          fileKey,
+          ids: chunk,
+          format: "png",
+          scale: 2
+        });
+        const images = r?.images || {};
+        for (const [k, v] of Object.entries(images)) {
+          if (typeof v === "string" && v) idToUrl.set(k, v);
+        }
+      } catch {
+        // ignore chunk failures (preview should still render without images)
+      }
+    }
+
+    const rewrite = (node: DSNode) => {
+      if (!node) return;
+      if (node.kind === "element" && node.name === "img") {
+        const nodeId = node?.ref?.figmaNodeId ? String(node.ref.figmaNodeId) : "";
+        const p = node.props || {};
+        const src = String(p.src || "");
+        const next = nodeId ? idToUrl.get(nodeId) : undefined;
+        // Replace placeholders and local-asset paths in preview responses.
+        if (next && (src.startsWith("__FIGMA_NODE__") || src.startsWith("/assets/figma/") || !src)) {
+          node.props = { ...p, src: next };
+        }
+      }
+      for (const c of node.children || []) rewrite(c);
+    };
+    rewrite(dsRoot.tree);
+  }
+
   private async resolveFigmaAssets(dsRoot: DSRoot, projectDir: string) {
     const fileKey = dsRoot?.meta?.fileKey;
     if (!fileKey) return;

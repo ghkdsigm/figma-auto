@@ -244,6 +244,21 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
     style: nodeStyle(n)
   };
 
+  // Many designs apply bitmap fills directly on FRAME/INSTANCE (e.g. Avatar instances).
+  // If a node has an IMAGE fill and no children, treat it as an image so downstream can export it.
+  const hasImageFill =
+    Array.isArray(n?.fills) &&
+    (n.fills || []).some((p: any) => p?.type === "IMAGE" && p?.visible !== false);
+  const hasChildren = Array.isArray(n?.children) && (n.children || []).length > 0;
+  if (hasImageFill && !hasChildren && type !== "RECTANGLE") {
+    const imgPaint = (n.fills || []).find((p: any) => p?.type === "IMAGE" && p?.visible !== false);
+    return {
+      ...base,
+      type: "image",
+      srcRef: imgPaint?.imageRef ? { figmaImageRef: String(imgPaint.imageRef) } : undefined
+    };
+  }
+
   if (["DOCUMENT", "CANVAS", "FRAME", "COMPONENT", "INSTANCE", "GROUP"].includes(type)) {
     const children = (n.children || [])
       .map((c: any) => fromNode(c, [...namePath, String(c?.name ?? c?.type ?? "node")], diagnostics))
