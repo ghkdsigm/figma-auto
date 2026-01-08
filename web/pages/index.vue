@@ -7,14 +7,14 @@
       <h2 class="font-medium">로그인</h2>
       <input v-model="email" class="border rounded-lg px-3 py-2 w-full" placeholder="email" />
       <input v-model="password" type="password" class="border rounded-lg px-3 py-2 w-full" placeholder="password" />
-      <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="login">로그인</button>
+      <LoadingButton className="px-4 py-2 rounded-lg bg-blue-600 text-white" :loading="loading['login']" :disabled="isBusy" @click="login">로그인</LoadingButton>
       <div v-if="token" class="text-sm text-slate-600">토큰설정완료</div>
     </section>
 
     <section class="border rounded-xl p-4 space-y-2 max-w-xl">
       <h2 class="font-medium">프로젝트 생성</h2>
       <input v-model="projectName" class="border rounded-lg px-3 py-2 w-full" placeholder="project name" />
-      <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="createProject">생성하기</button>
+      <LoadingButton className="px-4 py-2 rounded-lg bg-slate-900 text-white" :loading="loading['createProject']" :disabled="isBusy" @click="createProject">생성하기</LoadingButton>
       <div v-if="project" class="text-sm">프로젝트ID: <span class="font-mono">{{ project.id }}</span></div>
     </section>
 
@@ -33,14 +33,14 @@
       </div>
 
       <div class="flex gap-2">
-        <button class="px-4 py-2 rounded-lg bg-blue-600 text-white" @click="importFigma">가져오기</button>
-        <button class="px-4 py-2 rounded-lg bg-slate-200" @click="importSample">샘플 입력</button>
+        <LoadingButton className="px-4 py-2 rounded-lg bg-blue-600 text-white" :loading="loading['importFigma']" :disabled="isBusy" @click="importFigma">가져오기</LoadingButton>
+        <LoadingButton className="px-4 py-2 rounded-lg bg-slate-200" :loading="loading['importSample']" :disabled="isBusy" @click="importSample">샘플 입력</LoadingButton>
       </div>
 
       <div class="pt-4 border-t space-y-2">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-medium">JSON 파일 업로드 (manual)</h3>
-          <button class="px-3 py-2 rounded-lg border" @click="refreshLatest">최신파일 새로고침</button>
+          <LoadingButton className="px-3 py-2 rounded-lg border" :loading="loading['refreshLatest']" :disabled="isBusy" @click="refreshLatest">최신파일 새로고침</LoadingButton>
         </div>
         <input
           ref="jsonFileEl"
@@ -50,23 +50,11 @@
           @change="onPickJson"
         />
         <div class="flex flex-wrap gap-2">
-          <button class="px-4 py-2 rounded-lg bg-emerald-600 text-white" :disabled="!pickedJson" @click="uploadJson">
+          <LoadingButton className="px-4 py-2 rounded-lg bg-emerald-600 text-white" :loading="loading['uploadJson']" :disabled="isBusy || !pickedJson" @click="uploadJson">
             업로드 JSON
-          </button>
-          <button
-            class="px-4 py-2 rounded-lg bg-slate-900 text-white"
-            :disabled="!pickedJson"
-            @click="uploadJsonAndGenerate('vue')"
-          >
-            업로드후 Vue 생성
-          </button>
-          <button
-            class="px-4 py-2 rounded-lg bg-slate-200"
-            :disabled="!pickedJson"
-            @click="uploadJsonAndGenerate('nuxt')"
-          >
-            업로드후 Nuxt 생성
-          </button>
+          </LoadingButton>
+          <LoadingButton className="px-4 py-2 rounded-lg bg-slate-900 text-white" :loading="loading['uploadVue']" :disabled="isBusy || !pickedJson" @click="uploadJsonAndGenerate('vue')">업로드후 Vue 생성</LoadingButton>
+          <LoadingButton className="px-4 py-2 rounded-lg bg-slate-200" :loading="loading['uploadNuxt']" :disabled="isBusy || !pickedJson" @click="uploadJsonAndGenerate('nuxt')">업로드후 Nuxt 생성</LoadingButton>
         </div>
 
         <div class="text-xs text-slate-600 space-y-1">
@@ -94,15 +82,15 @@
         </select>
       </div>
       <div class="flex gap-2">
-        <button class="px-4 py-2 rounded-lg bg-slate-900 text-white" @click="generate('nuxt')">Nuxt 생성</button>
-        <button class="px-4 py-2 rounded-lg bg-slate-200" @click="generate('vue')">VUE 생성</button>
+        <LoadingButton className="px-4 py-2 rounded-lg bg-slate-900 text-white" :loading="loading['generateNuxt']" :disabled="isBusy" @click="generate('nuxt')">Nuxt 생성</LoadingButton>
+        <LoadingButton className="px-4 py-2 rounded-lg bg-slate-200" :loading="loading['generateVue']" :disabled="isBusy" @click="generate('vue')">VUE 생성</LoadingButton>
       </div>
     </section>
 
     <section v-if="project" class="border rounded-xl p-4 space-y-2 max-w-xl">
       <div class="flex items-center justify-between">
         <h2 class="font-medium">결과물</h2>
-        <button class="px-3 py-2 rounded-lg border" @click="loadArtifacts">새로고침</button>
+        <LoadingButton className="px-3 py-2 rounded-lg border" :loading="loading['loadArtifacts']" :disabled="isBusy" @click="loadArtifacts">새로고침</LoadingButton>
       </div>
       <ul class="space-y-2">
         <li v-for="a in artifacts" :key="a.id" class="border rounded-lg p-3 flex items-center justify-between">
@@ -115,7 +103,7 @@
               :to="`/preview?projectId=${project.id}&artifactId=${a.id}`"
               class="px-4 py-2 rounded-lg border"
             >미리보기</NuxtLink>
-            <button @click="downloadArtifact(a.id)" class="px-4 py-2 rounded-lg bg-blue-600 text-white">다운로드</button>
+            <LoadingButton :className="'px-4 py-2 rounded-lg bg-blue-600 text-white'" :loading="loading['download:' + a.id]" :disabled="isBusy" @click="downloadArtifact(a.id)">다운로드</LoadingButton>
           </div>
         </li>
       </ul>
@@ -124,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, watch } from "vue";
+import { onMounted, watch, reactive, computed } from "vue";
 
 const apiBase = useRuntimeConfig().public.apiBase as string;
 
@@ -149,6 +137,33 @@ const pickedJson = ref<File | null>(null);
 const latestImportId = ref<string>("");
 const latestMapId = ref<string>("");
 const latestError = ref<string>("");
+
+const loading = reactive<Record<string, boolean>>({
+  login: false,
+  createProject: false,
+  importFigma: false,
+  importSample: false,
+  refreshLatest: false,
+  uploadJson: false,
+  uploadVue: false,
+  uploadNuxt: false,
+  generateVue: false,
+  generateNuxt: false,
+  loadArtifacts: false,
+});
+
+const isBusy = computed(() => Object.values(loading).some(Boolean));
+
+async function withLoading<T>(key: string, fn: () => Promise<T>) {
+  if (isBusy.value && !loading[key]) return undefined as unknown as T;
+  loading[key] = true;
+  try {
+    return await fn();
+  } finally {
+    loading[key] = false;
+  }
+}
+
 
 const authHeaders = computed(() => (token.value ? { Authorization: `Bearer ${token.value}` } : {}));
 
@@ -211,56 +226,68 @@ watch(figmaInput, (v) => {
 });
 
 async function login() {
-  const r: any = await $fetch(`${apiBase}/auth/login`, {
-    method: "POST",
-    body: { email: email.value, password: password.value }
+  const __key = 'login';
+  return await withLoading(__key, async () => {
+      const r: any = await $fetch(`${apiBase}/auth/login`, {
+        method: "POST",
+        body: { email: email.value, password: password.value }
+      });
+      token.value = r.accessToken;
   });
-  token.value = r.accessToken;
 }
 
 async function createProject() {
-  const r: any = await $fetch(`${apiBase}/projects`, {
-    method: "POST",
-    headers: authHeaders.value,
-    body: { name: projectName.value }
+  const __key = 'createProject';
+  return await withLoading(__key, async () => {
+      const r: any = await $fetch(`${apiBase}/projects`, {
+        method: "POST",
+        headers: authHeaders.value,
+        body: { name: projectName.value }
+      });
+      project.value = r.project;
+      await loadArtifacts();
+      await refreshLatest();
   });
-  project.value = r.project;
-  await loadArtifacts();
-  await refreshLatest();
 }
 
 async function importFigma() {
-  latestError.value = "";
-
-  const fileKey = parsedFileKey.value.trim();
-  const nodeId = parsedNodeId.value.trim();
-
-  if (!fileKey) {
-    latestError.value = "fileKey가 비어있어요. Figma URL 또는 fileKey를 입력하세요.";
-    return;
-  }
-
-  const body: any = { fileKey };
-  if (nodeId) body.nodeIds = [nodeId];
-
-  await $fetch(`${apiBase}/projects/${project.value.id}/import/figma`, {
-    method: "POST",
-    headers: authHeaders.value,
-    body
+  const __key = 'importFigma';
+  return await withLoading(__key, async () => {
+      latestError.value = "";
+    
+      const fileKey = parsedFileKey.value.trim();
+      const nodeId = parsedNodeId.value.trim();
+    
+      if (!fileKey) {
+        latestError.value = "fileKey가 비어있어요. Figma URL 또는 fileKey를 입력하세요.";
+        return;
+      }
+    
+      const body: any = { fileKey };
+      if (nodeId) body.nodeIds = [nodeId];
+    
+      await $fetch(`${apiBase}/projects/${project.value.id}/import/figma`, {
+        method: "POST",
+        headers: authHeaders.value,
+        body
+      });
+    
+      await new Promise((r) => setTimeout(r, 600));
+      await refreshLatest();
   });
-
-  await new Promise((r) => setTimeout(r, 600));
-  await refreshLatest();
 }
 
 async function importSample() {
-  latestError.value = "";
-  await $fetch(`${apiBase}/projects/${project.value.id}/import/sample`, {
-    method: "POST",
-    headers: authHeaders.value
+  const __key = 'importSample';
+  return await withLoading(__key, async () => {
+      latestError.value = "";
+      await $fetch(`${apiBase}/projects/${project.value.id}/import/sample`, {
+        method: "POST",
+        headers: authHeaders.value
+      });
+      await new Promise((r) => setTimeout(r, 600));
+      await refreshLatest();
   });
-  await new Promise((r) => setTimeout(r, 600));
-  await refreshLatest();
 }
 
 function onPickJson(e: Event) {
@@ -269,8 +296,11 @@ function onPickJson(e: Event) {
 }
 
 async function refreshLatest() {
-  latestError.value = "";
-  await Promise.all([loadLatestImport(), loadLatestMap()]);
+  const __key = 'refreshLatest';
+  return await withLoading(__key, async () => {
+      latestError.value = "";
+      await Promise.all([loadLatestImport(), loadLatestMap()]);
+  });
 }
 
 async function loadLatestImport() {
@@ -288,50 +318,62 @@ async function loadLatestMap() {
 }
 
 async function uploadJson() {
-  if (!pickedJson.value) return;
-
-  latestError.value = "";
-
-  const form = new FormData();
-  form.append("file", pickedJson.value);
-
-  const res = await fetch(`${apiBase}/projects/${project.value.id}/import/json`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token.value}`
-    },
-    body: form
+  const __key = 'uploadJson';
+  return await withLoading(__key, async () => {
+      if (!pickedJson.value) return;
+    
+      latestError.value = "";
+    
+      const form = new FormData();
+      form.append("file", pickedJson.value);
+    
+      const res = await fetch(`${apiBase}/projects/${project.value.id}/import/json`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token.value}`
+        },
+        body: form
+      });
+    
+      if (!res.ok) {
+        latestError.value = await res.text();
+        return;
+      }
+    
+      await new Promise((r) => setTimeout(r, 600));
+      await refreshLatest();
   });
-
-  if (!res.ok) {
-    latestError.value = await res.text();
-    return;
-  }
-
-  await new Promise((r) => setTimeout(r, 600));
-  await refreshLatest();
 }
 
 async function uploadJsonAndGenerate(target: "nuxt" | "vue") {
-  await uploadJson();
-  await generate(target);
+  const __key = target === 'vue' ? 'uploadVue' : 'uploadNuxt';
+  return await withLoading(__key, async () => {
+      await uploadJson();
+      await generate(target);
+  });
 }
 
 async function generate(target: "nuxt" | "vue") {
-  latestError.value = "";
-  await $fetch(`${apiBase}/projects/${project.value.id}/generate`, {
-    method: "POST",
-    headers: authHeaders.value,
-    body: { target, policy: policy.value }
+  const __key = target === 'vue' ? 'generateVue' : 'generateNuxt';
+  return await withLoading(__key, async () => {
+      latestError.value = "";
+      await $fetch(`${apiBase}/projects/${project.value.id}/generate`, {
+        method: "POST",
+        headers: authHeaders.value,
+        body: { target, policy: policy.value }
+      });
+      setTimeout(loadArtifacts, 1500);
   });
-  setTimeout(loadArtifacts, 1500);
 }
 
 async function loadArtifacts() {
-  const r: any = await $fetch(`${apiBase}/projects/${project.value.id}/artifacts`, {
-    headers: authHeaders.value
+  const __key = 'loadArtifacts';
+  return await withLoading(__key, async () => {
+      const r: any = await $fetch(`${apiBase}/projects/${project.value.id}/artifacts`, {
+        headers: authHeaders.value
+      });
+      artifacts.value = r.items || [];
   });
-  artifacts.value = r.items || [];
 }
 
 function downloadUrl(id: string) {
@@ -339,23 +381,26 @@ function downloadUrl(id: string) {
 }
 
 async function downloadArtifact(id: string) {
-  const url = downloadUrl(id);
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token.value}` }
+  const __key = `download:${id}`;
+  return await withLoading(__key, async () => {
+      const url = downloadUrl(id);
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token.value}` }
+      });
+    
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.statusText}`);
+      }
+    
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `artifact-${id}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
   });
-
-  if (!response.ok) {
-    throw new Error(`Download failed: ${response.statusText}`);
-  }
-
-  const blob = await response.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = objectUrl;
-  a.download = `artifact-${id}.zip`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(objectUrl);
 }
 </script>
