@@ -169,7 +169,12 @@ export class DsMappingService {
     return out;
   }
 
-  private mapNode(n: A2UINode, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+  private mapNode(
+    n: A2UINode,
+    policy: Policy,
+    diagnostics: A2UIDiagnostic[],
+    parentFlexDirection?: "row" | "column"
+  ): DSNode {
     if (!n) {
       return { id: "nil", kind: "element", name: "div", children: [] };
     }
@@ -177,8 +182,8 @@ export class DsMappingService {
     if (n.type === "button") return this.mapButton(n, policy, diagnostics);
     if (n.type === "text") return this.mapText(n, policy, diagnostics);
     if (n.type === "input") return this.mapInput(n, policy, diagnostics);
-    if (n.type === "image") return this.mapImage(n, policy, diagnostics);
-    if (n.type === "frame") return this.mapFrame(n, policy, diagnostics);
+    if (n.type === "image") return this.mapImage(n, policy, diagnostics, parentFlexDirection);
+    if (n.type === "frame") return this.mapFrame(n, policy, diagnostics, parentFlexDirection);
 
     return this.unsafeFallback(n, policy, diagnostics, "UNSUPPORTED_NODE");
   }
@@ -193,10 +198,18 @@ export class DsMappingService {
         size === "lg" ? "px-5 py-3 text-base" :
         "px-4 py-2 text-sm";
 
+      // Prefer the original Figma TEXT fill color when available (n.style.fills comes from the TEXT node).
+      const figmaTextFill = n.style?.fills?.[0];
+      const figmaTextCls = clsHexText(figmaTextFill);
+
       const intentCls =
-        intent === "secondary" ? "bg-white text-[var(--ds-fg)] border border-[var(--ds-border)]" :
-        intent === "danger" ? "bg-[var(--ds-danger)] text-white" :
-        "bg-[var(--ds-primary)] text-white";
+        intent === "secondary" ? "bg-white border border-[var(--ds-border)]" :
+        intent === "danger" ? "bg-[var(--ds-danger)]" :
+        "bg-[var(--ds-primary)]";
+
+      const fallbackTextCls =
+        intent === "secondary" ? "text-[var(--ds-fg)]" :
+        "text-white";
 
       return {
         id: n.id,
@@ -207,6 +220,7 @@ export class DsMappingService {
           "inline-flex items-center justify-center rounded-lg font-medium",
           sizeCls,
           intentCls,
+          figmaTextCls || fallbackTextCls,
           "shadow-sm",
           "focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)] focus:ring-offset-2"
         ],
@@ -324,19 +338,25 @@ export class DsMappingService {
     };
   }
 
-  private mapImage(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+  private mapImage(n: any, policy: Policy, diagnostics: A2UIDiagnostic[], parentFlexDirection?: "row" | "column"): DSNode {
     const nodeId = n?.ref?.figmaNodeId ? String(n.ref.figmaNodeId) : "";
     const placeholder = nodeId ? `__FIGMA_NODE__:${nodeId}` : "";
 
     // Preserve basic geometry in RAW mode so images don't collapse.
     const classes: string[] = ["object-cover"];
     const l = n.layout || {};
-    if (l.width === "fill") classes.push("w-full");
+    if (l.width === "fill") {
+      if (parentFlexDirection === "row") classes.push("flex-1", "min-w-0");
+      else classes.push("w-full");
+    }
     else {
       const wCls = clsPx("w", l.width);
       if (wCls) classes.push(wCls);
     }
-    if (l.height === "fill") classes.push("h-full");
+    if (l.height === "fill") {
+      if (parentFlexDirection === "column") classes.push("flex-1", "min-h-0");
+      else classes.push("h-full");
+    }
     else {
       const hCls = clsPx("h", l.height);
       if (hCls) classes.push(hCls);
@@ -355,7 +375,7 @@ export class DsMappingService {
     };
   }
 
-  private mapFrame(n: any, policy: Policy, diagnostics: A2UIDiagnostic[]): DSNode {
+  private mapFrame(n: any, policy: Policy, diagnostics: A2UIDiagnostic[], parentFlexDirection?: "row" | "column"): DSNode {
     if (policy === "RAW") {
       const classes: string[] = [];
       const l = n.layout || {};
@@ -382,14 +402,16 @@ export class DsMappingService {
       }
 
       if (l.width === "fill") {
-        classes.push("w-full");
+        if (parentFlexDirection === "row") classes.push("flex-1", "min-w-0");
+        else classes.push("w-full");
       } else {
         const wCls = clsPx("w", l.width);
         if (wCls) classes.push(wCls);
       }
 
       if (l.height === "fill") {
-        classes.push("h-full");
+        if (parentFlexDirection === "column") classes.push("flex-1", "min-h-0");
+        else classes.push("h-full");
       } else {
         const hCls = clsPx("h", l.height);
         if (hCls) classes.push(hCls);
@@ -427,13 +449,42 @@ export class DsMappingService {
         }
       }
 
+      const mappedChildren = (n.children || []).map((c: any) => this.mapNode(c, policy, diagnostics, l.direction));
+
+      // Heuristic: if a "button-like" frame contains a single <button>, merge them.
+      // This avoids nested div(button container) -> button, which can look like wrong sizing (e.g. 7:3).
+      if (mappedChildren.length === 1) {
+        const only = mappedChildren[0];
+        if (only?.kind === "element" && only?.name === "button") {
+          const childCls = Array.isArray(only.classes) ? only.classes : [];
+          const mergedChildCls = childCls.filter((c: string) => {
+            // Drop default button skin that conflicts with the frame's actual bg/border/padding.
+            if (/^bg-/.test(c)) return false;
+            if (/^px-/.test(c) || /^py-/.test(c)) return false;
+            if (/^rounded/.test(c)) return false;
+            if (/^shadow/.test(c)) return false;
+            return true;
+          });
+
+          return {
+            id: n.id,
+            ref: n.ref,
+            kind: "element",
+            name: "button",
+            props: only.props || {},
+            classes: [...classes, ...mergedChildCls],
+            children: only.children || []
+          };
+        }
+      }
+
       return {
         id: n.id,
         ref: n.ref,
         kind: "element",
         name: "div",
         classes,
-        children: (n.children || []).map((c: any) => this.mapNode(c, policy, diagnostics))
+        children: mappedChildren
       };
     }
 
@@ -499,7 +550,7 @@ export class DsMappingService {
       kind: "element",
       name: "div",
       classes,
-      children: (n.children || []).map((c: any) => this.mapNode(c, policy, diagnostics))
+      children: (n.children || []).map((c: any) => this.mapNode(c, policy, diagnostics, layout?.direction))
     };
   }
 
@@ -519,7 +570,7 @@ export class DsMappingService {
       kind: "component",
       name: "UnsafeBox",
       props: { originalType: n.type, debugName: n.name || "" },
-      children: n.children ? n.children.map((c: any) => this.mapNode(c, policy, diagnostics)) : []
+      children: n.children ? n.children.map((c: any) => this.mapNode(c, policy, diagnostics, n.layout?.direction)) : []
     };
   }
 }
