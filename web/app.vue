@@ -1,2 +1,2 @@
 <!-- app.vue -->
-<template><div class='min-h-screen p-6'><NuxtPage /></div></template>
+<template><NuxtLayout><NuxtPage /></NuxtLayout></template>

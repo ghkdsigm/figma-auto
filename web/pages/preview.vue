@@ -1,76 +1,192 @@
 <!-- pages/preview.vue -->
 <template>
-  <div class="min-h-screen p-6">
-    <div class="max-w-5xl mx-auto space-y-6">
-      <div class="flex items-center justify-between">
-        <h1 class="text-xl font-semibold">Preview</h1>
-        <NuxtLink to="/" class="text-sm underline">Back</NuxtLink>
-      </div>
+  <div class="min-h-screen">
+    <!-- Background -->
+    <div class="fixed inset-0 -z-10">
+      <div class="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-indigo-50"></div>
+      <div class="absolute -top-24 -left-24 h-72 w-72 rounded-full bg-indigo-200/40 blur-3xl"></div>
+      <div class="absolute top-40 -right-24 h-72 w-72 rounded-full bg-cyan-200/40 blur-3xl"></div>
+      <div class="absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-rose-200/30 blur-3xl"></div>
+      <div class="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(15,23,42,0.06)_1px,transparent_1px)] [background-size:22px_22px] opacity-40"></div>
+    </div>
 
-      <div class="flex items-center gap-2">
-        <div class="text-sm text-slate-700">
-          Project: <span class="font-mono">{{ projectId || "(none)" }}</span>
+    <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-8">
+      <!-- Top bar -->
+      <div class="mb-6">
+        <div
+          class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-3xl border border-slate-200/70 bg-white/70 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur p-5"
+        >
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="h-2 w-2 rounded-full bg-indigo-500"></span>
+              <h1 class="text-lg sm:text-xl font-semibold tracking-tight text-slate-900">
+                Preview
+              </h1>
+            </div>
+            <div class="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              <span class="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 shadow-sm">
+                <span class="text-slate-500">Project</span>
+                <span class="font-mono font-semibold text-slate-900 break-all">{{ projectId || "(none)" }}</span>
+              </span>
+
+              <span v-if="artifactId" class="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-indigo-700 ring-1 ring-indigo-200">
+                <span class="text-indigo-500">Artifact</span>
+                <span class="font-mono font-semibold break-all">{{ artifactId }}</span>
+              </span>
+
+              <span v-else class="inline-flex items-center gap-2 rounded-full bg-slate-900/5 px-3 py-1 text-slate-700 ring-1 ring-slate-200">
+                <span class="text-slate-500">Policy</span>
+                <span class="font-mono font-semibold">{{ policy }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <LoadingButton
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+              :loading="loading['loadLatest']"
+              :disabled="isBusy"
+              @click="loadLatest()"
+            >
+              새로고침
+            </LoadingButton>
+
+            <NuxtLink
+              to="/"
+              class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200"
+            >
+              뒤로가기
+            </NuxtLink>
+          </div>
         </div>
-        <LoadingButton className="text-sm underline" :loading="loading['loadLatest']" :disabled="isBusy" @click="loadLatest()">Reload</LoadingButton>
       </div>
 
-      <div v-if="error" class="text-sm text-red-600">
+      <!-- Error -->
+      <div
+        v-if="error"
+        class="mb-6 rounded-3xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 shadow-sm"
+      >
         {{ error }}
       </div>
 
-      <div class="border rounded-xl p-4 bg-white">
-        <DsRenderer v-if="root" :node="root" />
-        <div v-else class="text-sm text-slate-700">
-          아직 불러올 데이터가 없습니다. 먼저 JSON Import 또는 Figma Import 후 Map/Generate 를 실행하세요.
-        </div>
-      </div>
-
-      <details class="text-xs text-slate-600">
-        <summary class="cursor-pointer">Debug (dsSpec)</summary>
-        <pre class="mt-2 p-3 bg-slate-50 border rounded-lg whitespace-pre-wrap">{{ pretty }}</pre>
-      </details>
-
-      <details v-if="sources" class="text-xs text-slate-600">
-        <summary class="cursor-pointer">Debug (generated sources)</summary>
-
-        <div class="mt-2 space-y-4">
-          <div class="flex justify-end">
-            <LoadingButton
-              className="px-3 py-2 rounded-lg border bg-white"
-              :loading="loading['copyAll']"
-              :disabled="isBusy"
-              @click="copyAllSources"
-            >
-              전체 복사
-            </LoadingButton>
+      <!-- Render card -->
+      <section
+        class="rounded-3xl border border-slate-200/70 bg-white/70 shadow-[0_10px_30px_-18px_rgba(15,23,42,0.35)] backdrop-blur"
+      >
+        <div class="p-5 sm:p-6">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold text-slate-900">Rendered Output</div>
+              <div class="mt-1 text-xs text-slate-600">
+                dsSpec tree를 렌더링한 결과를 보여줍니다.
+              </div>
+            </div>
+            <div class="hidden sm:flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1 text-xs text-slate-600 shadow-sm">
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+              Renderer
+            </div>
           </div>
 
-          <div
-            v-for="[filePath, fileContent] in sourcesEntries"
-            :key="filePath"
-            class="border rounded-lg overflow-hidden bg-slate-50"
-          >
-            <div class="flex items-center justify-between px-3 py-2 border-b bg-white">
-              <div class="font-mono text-xs text-slate-700">
-                {{ filePath }}
+          <div class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
+            <DsRenderer v-if="root" :node="root" />
+            <div v-else class="py-10 text-center">
+              <div class="mx-auto mb-3 h-10 w-10 rounded-2xl bg-slate-900/5"></div>
+              <div class="text-sm font-medium text-slate-800">
+                아직 불러올 데이터가 없습니다.
+              </div>
+              <div class="mt-1 text-sm text-slate-600">
+                먼저 JSON Import 또는 Figma Import 후 Map/Generate 를 실행하세요.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Debug panels -->
+      <div class="mt-6 space-y-4">
+        <details class="group rounded-3xl border border-slate-200/70 bg-white/70 shadow-sm backdrop-blur">
+          <summary class="cursor-pointer list-none px-5 py-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <span class="h-2 w-2 rounded-full bg-slate-400"></span>
+                <span class="text-sm font-semibold text-slate-900">Debug (dsSpec)</span>
+              </div>
+              <span class="text-xs text-slate-500 group-open:hidden">펼치기</span>
+              <span class="text-xs text-slate-500 hidden group-open:inline">접기</span>
+            </div>
+          </summary>
+          <div class="px-5 pb-5">
+            <pre class="rounded-2xl border border-slate-200/70 bg-slate-950 p-4 text-xs text-slate-100 whitespace-pre-wrap overflow-auto shadow-sm">{{ pretty }}</pre>
+          </div>
+        </details>
+
+        <details
+          v-if="sources"
+          class="group rounded-3xl border border-slate-200/70 bg-white/70 shadow-sm backdrop-blur"
+        >
+          <summary class="cursor-pointer list-none px-5 py-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2">
+                <span class="h-2 w-2 rounded-full bg-indigo-500"></span>
+                <span class="text-sm font-semibold text-slate-900">Debug (generated sources)</span>
+              </div>
+              <span class="text-xs text-slate-500 group-open:hidden">펼치기</span>
+              <span class="text-xs text-slate-500 hidden group-open:inline">접기</span>
+            </div>
+          </summary>
+
+          <div class="px-5 pb-5">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div class="text-sm text-slate-600">
+                생성된 파일을 개별/전체로 복사할 수 있어요.
               </div>
               <LoadingButton
-                className="px-3 py-1.5 rounded-lg border bg-white"
-                :loading="loading['copy:' + filePath]"
+                className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                :loading="loading['copyAll']"
                 :disabled="isBusy"
-                @click="copySourceFile(filePath, fileContent)"
+                @click="copyAllSources"
               >
-                복사
+                전체 복사
               </LoadingButton>
             </div>
-            <pre class="p-3 whitespace-pre-wrap text-xs text-slate-700">{{ fileContent }}</pre>
-          </div>
 
-          <div v-if="copyMessage" class="text-xs text-emerald-700">
-            {{ copyMessage }}
+            <div class="space-y-4">
+              <div
+                v-for="[filePath, fileContent] in sourcesEntries"
+                :key="filePath"
+                class="overflow-hidden rounded-3xl border border-slate-200/70 bg-white/70 shadow-sm"
+              >
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-b border-slate-200/70 bg-white/70">
+                  <div class="min-w-0">
+                    <div class="text-xs text-slate-500">file</div>
+                    <div class="font-mono text-xs sm:text-sm font-semibold text-slate-900 break-all">
+                      {{ filePath }}
+                    </div>
+                  </div>
+
+                  <LoadingButton
+                    className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                    :loading="loading['copy:' + filePath]"
+                    :disabled="isBusy"
+                    @click="copySourceFile(filePath, fileContent)"
+                  >
+                    복사
+                  </LoadingButton>
+                </div>
+
+                <pre class="bg-slate-950 p-4 text-xs text-slate-100 whitespace-pre-wrap overflow-auto">{{ fileContent }}</pre>
+              </div>
+
+              <div
+                v-if="copyMessage"
+                class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
+              >
+                {{ copyMessage }}
+              </div>
+            </div>
           </div>
-        </div>
-      </details>
+        </details>
+      </div>
     </div>
   </div>
 </template>
@@ -163,7 +279,6 @@ async function copyAllSources() {
   });
 }
 
-
 const pretty = computed(() => (raw.value ? JSON.stringify(raw.value, null, 2) : ""));
 const prettySources = computed(() => (sources.value ? JSON.stringify(sources.value, null, 2) : ""));
 
@@ -173,54 +288,54 @@ function getToken() {
 }
 
 async function loadLatest() {
-  const __key = 'loadLatest';
+  const __key = "loadLatest";
   return await withLoading(__key, async () => {
-      error.value = "";
-      root.value = null;
-      raw.value = null;
-      sources.value = null;
-    
-      if (!projectId.value) {
-        if (process.client) {
-          const saved = localStorage.getItem("a2ui_projectId") || "";
-          if (saved) projectId.value = saved;
-        }
+    error.value = "";
+    root.value = null;
+    raw.value = null;
+    sources.value = null;
+
+    if (!projectId.value) {
+      if (process.client) {
+        const saved = localStorage.getItem("a2ui_projectId") || "";
+        if (saved) projectId.value = saved;
       }
-    
-      if (!projectId.value) {
-        error.value = "projectId가 없습니다. 메인 화면에서 프로젝트를 만든 뒤 Preview를 눌러주세요.";
-        return;
+    }
+
+    if (!projectId.value) {
+      error.value = "projectId가 없습니다. 메인 화면에서 프로젝트를 만든 뒤 Preview를 눌러주세요.";
+      return;
+    }
+
+    const token = getToken();
+    if (!token) {
+      error.value = "토큰이 없습니다. 메인 화면에서 Login 후 다시 시도하세요.";
+      return;
+    }
+
+    try {
+      if (artifactId.value) {
+        const data: any = await $fetch(`/projects/${projectId.value}/artifacts/${artifactId.value}/sources`, {
+          baseURL: "http://localhost:3000",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        raw.value = data?.dsSpec || null;
+        root.value = data?.dsSpec?.tree || null;
+        sources.value = data?.files || null;
+      } else {
+        const data: any = await $fetch(`/projects/${projectId.value}/maps/latest?policy=${encodeURIComponent(policy.value)}`, {
+          baseURL: "http://localhost:3000",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        const map = data?.map;
+        raw.value = map?.dsSpec || null;
+        root.value = map?.dsSpec?.tree || null;
+        sources.value = null;
       }
-    
-      const token = getToken();
-      if (!token) {
-        error.value = "토큰이 없습니다. 메인 화면에서 Login 후 다시 시도하세요.";
-        return;
-      }
-    
-      try {
-        if (artifactId.value) {
-          const data: any = await $fetch(`/projects/${projectId.value}/artifacts/${artifactId.value}/sources`, {
-            baseURL: "http://localhost:3000",
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          raw.value = data?.dsSpec || null;
-          root.value = data?.dsSpec?.tree || null;
-          sources.value = data?.files || null;
-        } else {
-          const data: any = await $fetch(`/projects/${projectId.value}/maps/latest?policy=${encodeURIComponent(policy.value)}`, {
-            baseURL: "http://localhost:3000",
-            headers: { Authorization: `Bearer ${token}` }
-          });
-    
-          const map = data?.map;
-          raw.value = map?.dsSpec || null;
-          root.value = map?.dsSpec?.tree || null;
-          sources.value = null;
-        }
-      } catch (e: any) {
-        error.value = e?.message || String(e);
-      }
+    } catch (e: any) {
+      error.value = e?.message || String(e);
+    }
   });
 }
 
