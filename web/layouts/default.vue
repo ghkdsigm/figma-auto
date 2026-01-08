@@ -32,7 +32,7 @@
               </div>
   
               <div class="flex items-center gap-3">
-                <div class="hidden sm:flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/70 px-3 py-1.5 text-xs text-slate-600 shadow-sm">
+                <div class="hidden sm:flex items-center gap-2 rounded-full bg-white/70 px-3 py-1.5 text-xs text-slate-600 shadow-sm">
                   <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                   <span v-if="isAuthenticated">환영합니다!</span>
                   <span v-else>로그인해주세요.</span>

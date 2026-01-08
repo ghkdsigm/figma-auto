@@ -51,29 +51,31 @@
               </div>
             </div>
 
-            <div class="grid gap-4">
+            <div class="space-y-4">
               <div>
                 <label class="block text-sm font-medium text-slate-700 mb-2">프로젝트 이름</label>
-                <div class="relative">
-                  <input
-                    v-model="projectName"
-                    class="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-200/50"
-                    placeholder="프로젝트 이름을 입력하세요"
-                  />
-                  <div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
-                    <div class="h-2 w-2 rounded-full bg-indigo-400/70"></div>
+                <div class="flex gap-3">
+                  <div class="relative flex-1">
+                    <input
+                      v-model="projectName"
+                      class="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-200/50"
+                      placeholder="프로젝트 이름을 입력하세요"
+                    />
+                    <div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                      <div class="h-2 w-2 rounded-full bg-indigo-400/70"></div>
+                    </div>
                   </div>
+
+                  <LoadingButton
+                    className="rounded-2xl bg-slate-900 px-4 py-3 font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 disabled:hover:bg-slate-900 whitespace-nowrap"
+                    :loading="loading['createProject']"
+                    :disabled="loading['createProject'] || !projectName.trim()"
+                    @click="createProject"
+                  >
+                    프로젝트 생성하기
+                  </LoadingButton>
                 </div>
               </div>
-
-              <LoadingButton
-                className="w-full rounded-2xl bg-slate-900 px-4 py-3 font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 disabled:hover:bg-slate-900"
-                :loading="loading['createProject']"
-                :disabled="loading['createProject'] || !projectName.trim()"
-                @click="createProject"
-              >
-                프로젝트 생성하기
-              </LoadingButton>
 
               <div
                 v-if="project"
@@ -155,7 +157,7 @@
 
                   <div class="flex flex-col sm:flex-row gap-3">
                     <LoadingButton
-                      className="flex-1 rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-white font-medium shadow-sm transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-60"
+                      className="rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-white font-medium shadow-sm transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-60 whitespace-nowrap"
                       :loading="loading['importFigma']"
                       :disabled="loading['importFigma']"
                       @click="importFigma"
@@ -163,7 +165,7 @@
                       피그마에서 코드 노드 정보 가져오기
                     </LoadingButton>
                     <LoadingButton
-                      className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                      className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 whitespace-nowrap"
                       :loading="loading['importSample']"
                       :disabled="loading['importSample']"
                       @click="importSample"
