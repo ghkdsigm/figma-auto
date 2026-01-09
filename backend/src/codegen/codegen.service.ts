@@ -845,7 +845,7 @@ defineEmits<{ (e: "cancel"): void; (e: "confirm"): void }>();
   };
 }
 
-function nuxtFiles(appHtml: string, dsRoot: DSRoot) {
+function nuxtFiles(appHtml: string, dsRoot: DSRoot): Record<string, string> {
   const diagnosticsJson = JSON.stringify(dsRoot.diagnostics || [], null, 2);
   const isRaw = dsRoot?.meta?.policy === "RAW";
   const c = getComponentSources();
@@ -966,7 +966,7 @@ import diagnostics from "~/generated/diagnostics.json";
   };
 }
 
-function viteFiles(appHtml: string, dsRoot: DSRoot) {
+function viteFiles(appHtml: string, dsRoot: DSRoot): Record<string, string> {
   const diagnosticsJson = JSON.stringify(dsRoot.diagnostics || [], null, 2);
   const isRaw = dsRoot?.meta?.policy === "RAW";
   const c = getComponentSources();
@@ -1277,7 +1277,7 @@ export class CodegenService {
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
   
-    let files = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
+    let files: Record<string, string> = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
   
     files = {
       ...files,
@@ -1303,7 +1303,7 @@ export class CodegenService {
   }
   
 
-  renderVueSources(dsRoot: DSRoot, target: string) {
+  renderVueSources(dsRoot: DSRoot, target: string): Record<string, string> {
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
   
