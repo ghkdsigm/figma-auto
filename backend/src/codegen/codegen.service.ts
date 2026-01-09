@@ -9,6 +9,57 @@ import type { DSRoot, DSNode } from "../ds-mapping/spec";
 import axios from "axios";
 import { McpClient } from "../mcp/mcp.client";
 
+function buildReadmeMarkdown(target: string) {
+  const t = String(target || "nuxt").toLowerCase() === "vue" ? "vue(vite)" : "nuxt";
+
+  return `# A2UI Generated Output
+
+이 ZIP은 A2UI Codegen이 생성한 ${t} 결과물입니다.
+
+---
+
+## Cursor Prompt (그대로 복사해서 사용)
+
+아래 프롬프트를 Cursor에 그대로 붙여넣고 실행하세요.  
+대상 코드는 이 ZIP 내부의 소스 전체입니다.
+
+\`\`\`
+너는 프론트엔드 시니어 개발자다. 아래 ZIP 프로젝트 소스를 기준으로 코드를 리팩토링/개선해라.
+
+목표:
+1) app.vue 및 모든 Vue 파일의 들여쓰기/줄맞춤을 정리한다(가독성 좋은 포맷팅).
+2) 디자인(스타일)은 생성된 결과물을 기준으로 유지한다.
+   - 특히 가로/세로 사이즈는 생성된 app.vue(또는 화면 루트)에 명시된 width/height 값을 그대로 보존한다.
+3) Figma INSTANCE/COMPONENT/그룹 이름/메타를 근거로 치환, 없다면 UI 요소를 components 폴더의 컴포넌트로 치환한다.
+   - 버튼/셀렉트/인풋/라디오/캐러셀/플래그/토글/스위치/썸네일카드/드롭다운/얼럿다이얼로그/체크박스/팝업/탭/햄버거/캘린더 등을 우선 대상으로 한다.
+   - 치환 후에도 2)에서 말한 추출된 디자인(스타일, spacing, radius, color, typography, width/height)을 동일하게 적용한다.
+4) app.vue 및 각 컴포넌트에 반응형을 적용한다.
+   - 기본(디자인 기준) 레이아웃은 유지하되, sm/md/lg 등의 breakpoint에서 자연스럽게 확장/축소되도록 Tailwind 기반으로 정리한다.
+
+제약:
+- 기능 동작은 유지한다.
+- 디자인이 무너지지 않도록 2) 조건(특히 width/height 보존)을 최우선으로 한다.
+
+작업 순서:
+A. app.vue 포맷팅
+B. components 폴더에 있는 컴포넌트 목록 파악
+C. app.vue의 div 블록들을 의미 있는 컴포넌트로 교체
+D. 각 컴포넌트에 추출 스타일 이식 및 반응형 처리
+E. 빌드/런 기준으로 깨지는 부분 수정
+
+결과:
+- 수정된 전체 파일 내용을 반영해라.
+\`\`\`
+
+---
+
+## 실행 메모
+- Nuxt: \`npm install\` → \`npm run dev\`
+- Vue(Vite): \`npm install\` → \`npm run dev\`
+`;
+}
+
+
 function escapeAttr(s: string) {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -1220,17 +1271,23 @@ export class CodegenService {
   async generateZip(projectId: string, target: string, dsRoot: DSRoot): Promise<string> {
     const id = uuid().slice(0, 8);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `a2ui-${projectId}-${id}-`));
-
+  
     await this.resolveFigmaAssets(dsRoot, dir);
-
+  
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
-    const files = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
-
+  
+    let files = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
+  
+    files = {
+      ...files,
+      "README.md": buildReadmeMarkdown(t),
+    };
+  
     for (const [rel, content] of Object.entries(files)) {
       writeFile(path.join(dir, rel), content);
     }
-
+  
     const zipPath = path.join(this.outDir, `${projectId}-${id}-${target}.zip`);
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipPath);
@@ -1241,18 +1298,20 @@ export class CodegenService {
       archive.directory(dir, false);
       archive.finalize();
     });
-
+  
     return zipPath;
   }
+  
 
   renderVueSources(dsRoot: DSRoot, target: string) {
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
-    if (t === "vue") {
-      const files = viteFiles(screen, dsRoot);
-      return files;
-    }
-    const files = nuxtFiles(screen, dsRoot);
-    return files;
-  }
+  
+    const base = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
+  
+    return {
+      ...base,
+      "README.md": buildReadmeMarkdown(t),
+    };
+  }  
 }
