@@ -627,12 +627,38 @@ async function generate(target: "nuxt" | "vue") {
   const __key = target === "vue" ? "generateVue" : "generateNuxt";
   return await withLoading(__key, async () => {
     latestError.value = "";
+
+    // 생성은 백엔드에서 Job 큐로 비동기 처리됩니다.
+    // 기존에는 1.5초 후 artifacts를 1회만 새로고침해서, 생성이 느리면 목록이 갱신되지 않아
+    // 사용자가 새로고침을 여러 번 눌러야 하는 문제가 있었어요.
+    const beforeIds = new Set((artifacts.value || []).map((a: any) => String(a?.id || "")));
+
     await $fetch(`${apiBase}/projects/${project.value.id}/generate`, {
       method: "POST",
       headers: authHeaders.value,
       body: { target, policy: policy.value },
     });
-    setTimeout(loadArtifacts, 1500);
+
+    // artifacts가 새로 생길 때까지 잠깐 폴링 (최대 60초)
+    const timeoutMs = 60_000;
+    const intervalMs = 1_000;
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const r: any = await $fetch(`${apiBase}/projects/${project.value.id}/artifacts`, {
+        headers: authHeaders.value,
+      });
+      const items = (r?.items || []) as any[];
+      artifacts.value = items;
+
+      const hasNew = items.some((a) => {
+        const id = String(a?.id || "");
+        return id && !beforeIds.has(id);
+      });
+      if (hasNew) return;
+
+      await new Promise((res) => setTimeout(res, intervalMs));
+    }
   });
 }
 
