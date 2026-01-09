@@ -1,3 +1,4 @@
+/* backend/src/a2ui/spec.ts */
 export type A2UIVersion = "0.2";
 
 export type A2UIRoot = {

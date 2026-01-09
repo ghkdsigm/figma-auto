@@ -1,3 +1,4 @@
+/* backend/src/a2ui/a2ui.service.ts */
 import { Injectable } from "@nestjs/common";
 import { v4 as uuid } from "uuid";
 import { A2UIRoot, A2UINode, A2UIDiagnostic, A2UIRef, A2UILayout, A2UIStyle, A2UIColor } from "./spec";
@@ -121,17 +122,37 @@ function nodeLayout(n: FigmaNode): A2UILayout | undefined {
     n?.absoluteBoundingBox?.height !== undefined ? Number(n.absoluteBoundingBox.height) :
     undefined;
 
-  const sizingH: string | undefined = al.layoutSizingHorizontal ?? al.primaryAxisSizingMode;
-  const sizingV: string | undefined = al.layoutSizingVertical ?? al.counterAxisSizingMode;
+  const primary = al.primaryAxisSizingMode;
+  const counter = al.counterAxisSizingMode;
+
+  const widthMode =
+    al.layoutSizingHorizontal ??
+    (layoutMode === "HORIZONTAL" ? primary : layoutMode === "VERTICAL" ? counter : undefined);
+
+  const heightMode =
+    al.layoutSizingVertical ??
+    (layoutMode === "HORIZONTAL" ? counter : layoutMode === "VERTICAL" ? primary : undefined);
+
+  const norm = (m: any): "fill" | "hug" | "fixed" | undefined => {
+    const s = String(m ?? "").toUpperCase();
+    if (s === "FILL") return "fill";
+    if (s === "HUG") return "hug";
+    if (s === "FIXED") return "fixed";
+    if (s === "AUTO") return "hug";
+    return undefined;
+  };
+
+  const wMode = norm(widthMode);
+  const hMode = norm(heightMode);
 
   const width: number | "fill" | "hug" | undefined =
-    sizingH === "FILL" ? "fill" :
-    sizingH === "HUG" ? "hug" :
+    wMode === "fill" ? "fill" :
+    wMode === "hug" ? "hug" :
     absW;
 
   const height: number | "fill" | "hug" | undefined =
-    sizingV === "FILL" ? "fill" :
-    sizingV === "HUG" ? "hug" :
+    hMode === "fill" ? "fill" :
+    hMode === "hug" ? "hug" :
     absH;
 
   if (!hasAutoLayout && !padding.some((v) => v) && !gap && width === undefined && height === undefined) {
@@ -168,6 +189,7 @@ function nodeLayout(n: FigmaNode): A2UILayout | undefined {
     align
   };
 }
+
 
 function nodeStyle(n: FigmaNode): A2UIStyle | undefined {
   const fills = pickSolidPaints(n?.fills);

@@ -1,3 +1,4 @@
+/* backend/src/ds-mapping/spec.ts */
 import type { A2UIDiagnostic, A2UIRef } from "../a2ui/spec";
 
 export type DSRoot = {

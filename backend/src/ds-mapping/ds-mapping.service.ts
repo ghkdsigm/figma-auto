@@ -1,3 +1,4 @@
+/* backend/src/ds-mapping/ds-mapping.service.ts */
 import { Injectable } from "@nestjs/common";
 import * as fs from "fs";
 import * as path from "path";
@@ -404,18 +405,23 @@ export class DsMappingService {
       if (l.width === "fill") {
         if (parentFlexDirection === "row") classes.push("flex-1", "min-w-0");
         else classes.push("w-full");
+      } else if (l.width === "hug") {
+        classes.push("w-fit");
       } else {
         const wCls = clsPx("w", l.width);
         if (wCls) classes.push(wCls);
       }
-
+      
       if (l.height === "fill") {
         if (parentFlexDirection === "column") classes.push("flex-1", "min-h-0");
         else classes.push("h-full");
+      } else if (l.height === "hug") {
+        classes.push("h-fit");
       } else {
         const hCls = clsPx("h", l.height);
         if (hCls) classes.push(hCls);
       }
+      
 
       const p = Array.isArray(l.padding) ? l.padding : undefined;
       if (p && p.length === 4) {
