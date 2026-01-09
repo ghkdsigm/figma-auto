@@ -69,7 +69,7 @@
   
             <!-- CTA -->
             <LoadingButton
-              className="w-full block text-center rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 mt-3 font-medium text-white shadow-sm transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-60"
+              className="w-full block text-center cursor-pointer rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 mt-3 font-medium text-white shadow-sm transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-60"
               :loading="loading"
               :disabled="loading || !email || !password"
               @click="handleLogin"

@@ -92,7 +92,42 @@
       ]
     },
     "BaseInput": {},
-    "UnsafeBox": {}
+    "UnsafeBox": {},
+    "BaseSelect": {
+      "sizes": [
+        "sm",
+        "md",
+        "lg"
+      ]
+    },
+    "BaseCheckbox": {
+      "sizes": [
+        "sm",
+        "md",
+        "lg"
+      ]
+    },
+    "BaseRadio": {
+      "sizes": [
+        "sm",
+        "md",
+        "lg"
+      ]
+    },
+    "BaseSwitch": {
+      "sizes": [
+        "sm",
+        "md",
+        "lg"
+      ]
+    },
+    "DropdownMenu": {},
+    "HamburgerButton": {},
+    "MenuList": {},
+    "ThumbnailCard": {},
+    "Carousel": {},
+    "CalendarInput": {},
+    "RangeSlider": {}
   },
   "rules": {
     "buttonTextHeuristic": [

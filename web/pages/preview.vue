@@ -11,6 +11,14 @@
     </div>
 
     <div class="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-8">
+      <transition name="fade">
+        <div
+          v-if="copyMessage"
+          class="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg"
+        >
+          {{ copyMessage }}
+        </div>
+      </transition>
       <!-- Top bar -->
       <div class="mb-6">
         <div
@@ -141,7 +149,7 @@
                 생성된 파일을 개별/전체로 복사할 수 있어요.
               </div>
               <LoadingButton
-                className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                className="inline-flex cursor-pointer items-center justify-center rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                 :loading="loading['copyAll']"
                 :disabled="isBusy"
                 @click="copyAllSources"
@@ -165,7 +173,7 @@
                   </div>
 
                   <LoadingButton
-                    className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                     :loading="loading['copy:' + filePath]"
                     :disabled="isBusy"
                     @click="copySourceFile(filePath, fileContent)"
@@ -177,12 +185,7 @@
                 <pre class="bg-slate-950 p-4 text-xs text-slate-100 whitespace-pre-wrap overflow-auto">{{ fileContent }}</pre>
               </div>
 
-              <div
-                v-if="copyMessage"
-                class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-              >
-                {{ copyMessage }}
-              </div>
+              <!-- copy toast is rendered globally (fixed) -->
             </div>
           </div>
         </details>
@@ -197,6 +200,10 @@ import { useHead } from "#app";
 import { useRoute } from "vue-router";
 import DsRenderer from "~/components/a2ui/DsRenderer.vue";
 
+definePageMeta({
+  middleware: "auth",
+});
+
 useHead({
   script: [
     {
@@ -207,6 +214,8 @@ useHead({
 });
 
 const route = useRoute();
+const apiBase = useRuntimeConfig().public.apiBase as string;
+const { token, authHeaders } = useAuth();
 
 const projectId = ref<string>(String(route.query.projectId || ""));
 const policy = ref<string>(String(route.query.policy || "RAW"));
@@ -235,34 +244,54 @@ async function withLoading<T>(key: string, fn: () => Promise<T>) {
 }
 
 const copyMessage = ref<string>("");
+let copyMessageTimer: number | undefined;
+function showCopyMessage(message: string) {
+  copyMessage.value = message;
+  if (copyMessageTimer) window.clearTimeout(copyMessageTimer);
+  copyMessageTimer = window.setTimeout(() => {
+    copyMessage.value = "";
+    copyMessageTimer = undefined;
+  }, 2000);
+}
+
 const sourcesEntries = computed<[string, string][]>(() => {
   const s = sources.value || {};
   return Object.entries(s).map(([k, v]) => [k, String(v)]);
 });
 
 async function copyText(text: string) {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+  // Prefer async Clipboard API, but fall back when it is blocked (permissions / insecure context)
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // ignore and fall back below
   }
+
   const ta = document.createElement("textarea");
   ta.value = text;
   ta.style.position = "fixed";
   ta.style.left = "-9999px";
   document.body.appendChild(ta);
+  ta.focus();
   ta.select();
-  document.execCommand("copy");
+  const ok = document.execCommand("copy");
   document.body.removeChild(ta);
+  if (!ok) throw new Error("clipboard copy failed");
 }
 
 async function copySourceFile(filePath: string, fileContent: string) {
   const key = `copy:${filePath}`;
   await withLoading(key, async () => {
-    await copyText(fileContent);
-    copyMessage.value = `${filePath} 복사 완료`;
-    window.setTimeout(() => {
-      if (copyMessage.value === `${filePath} 복사 완료`) copyMessage.value = "";
-    }, 1200);
+    try {
+      await copyText(fileContent);
+      showCopyMessage("복사가 완료되었습니다!");
+    } catch (e) {
+      showCopyMessage("복사에 실패했습니다. 브라우저 권한을 확인해주세요.");
+      throw e;
+    }
   });
 }
 
@@ -271,21 +300,18 @@ async function copyAllSources() {
     const joined = sourcesEntries.value
       .map(([p, c]) => `// ===== ${p} =====\n${c}`)
       .join("\n\n");
-    await copyText(joined);
-    copyMessage.value = "전체 복사 완료";
-    window.setTimeout(() => {
-      if (copyMessage.value === "전체 복사 완료") copyMessage.value = "";
-    }, 1200);
+    try {
+      await copyText(joined);
+      showCopyMessage("복사가 완료되었습니다!");
+    } catch (e) {
+      showCopyMessage("복사에 실패했습니다. 브라우저 권한을 확인해주세요.");
+      throw e;
+    }
   });
 }
 
 const pretty = computed(() => (raw.value ? JSON.stringify(raw.value, null, 2) : ""));
 const prettySources = computed(() => (sources.value ? JSON.stringify(sources.value, null, 2) : ""));
-
-function getToken() {
-  if (process.client) return localStorage.getItem("a2ui_token") || "";
-  return "";
-}
 
 async function loadLatest() {
   const __key = "loadLatest";
@@ -307,8 +333,7 @@ async function loadLatest() {
       return;
     }
 
-    const token = getToken();
-    if (!token) {
+    if (!token.value) {
       error.value = "토큰이 없습니다. 메인 화면에서 Login 후 다시 시도하세요.";
       return;
     }
@@ -316,16 +341,16 @@ async function loadLatest() {
     try {
       if (artifactId.value) {
         const data: any = await $fetch(`/projects/${projectId.value}/artifacts/${artifactId.value}/sources`, {
-          baseURL: "http://localhost:3000",
-          headers: { Authorization: `Bearer ${token}` },
+          baseURL: apiBase,
+          headers: authHeaders.value,
         });
         raw.value = data?.dsSpec || null;
         root.value = data?.dsSpec?.tree || null;
         sources.value = data?.files || null;
       } else {
         const data: any = await $fetch(`/projects/${projectId.value}/maps/latest?policy=${encodeURIComponent(policy.value)}`, {
-          baseURL: "http://localhost:3000",
-          headers: { Authorization: `Bearer ${token}` },
+          baseURL: apiBase,
+          headers: authHeaders.value,
         });
 
         const map = data?.map;
@@ -347,5 +372,14 @@ onMounted(() => {
 <style scoped>
 .bg-white {
   background: white;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 150ms ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

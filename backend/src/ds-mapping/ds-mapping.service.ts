@@ -18,6 +18,24 @@ type DesignSystem = {
   components?: {
     BaseButton?: { intents: string[]; sizes: string[] };
     Typography?: { variants: string[] };
+    BaseInput?: {};
+    BaseSelect?: { sizes: string[] };
+    BaseCheckbox?: { sizes: string[] };
+    BaseRadio?: { sizes: string[] };
+    BaseSwitch?: { sizes: string[] };
+    DropdownMenu?: {};
+    HamburgerButton?: {};
+    MenuList?: {};
+    ThumbnailCard?: {};
+    Carousel?: {};
+    CalendarInput?: {};
+    RangeSlider?: {};
+    ToggleButton?: { intents?: string[]; sizes?: string[] };
+    Popup?: {};
+    Loading?: { sizes?: string[] };
+    Flag?: { intents?: string[] };
+    Tabs?: {};
+    AlertDialog?: {};
     UnsafeBox?: {};
   };
 };
@@ -25,6 +43,100 @@ type DesignSystem = {
 function loadDesignSystem(): DesignSystem {
   const p = path.join(process.cwd(), "design-system", "design-system.json");
   return JSON.parse(fs.readFileSync(p, "utf-8"));
+}
+
+
+function normalizeName(s: string) {
+  return (s || "").toLowerCase().replace(/\s+/g, "");
+}
+
+function findFirstTextNode(n: any): string {
+  if (!n) return "";
+  if (n.type === "text") return String(n.text ?? n.label ?? "");
+  const children = Array.isArray(n.children) ? n.children : [];
+  for (const c of children) {
+    const t = findFirstTextNode(c);
+    if (t) return t;
+  }
+  return "";
+}
+
+function detectFrameComponent(n: any): { name: string; props?: Record<string, any> } | null {
+  const nm = normalizeName(String(n?.name ?? ""));
+  if (!nm) return null;
+
+  if (/(select|combobox|dropdown)/.test(nm)) {
+    const placeholder = findFirstTextNode(n) || "";
+    return { name: "BaseSelect", props: { placeholder } };
+  }
+
+  if (/(checkbox|check)/.test(nm)) {
+    const label = findFirstTextNode(n) || "";
+    return { name: "BaseCheckbox", props: { label, checked: false } };
+  }
+
+  if (/(radio)/.test(nm)) {
+    const label = findFirstTextNode(n) || "";
+    return { name: "BaseRadio", props: { label, checked: false, name: "radio" } };
+  }
+
+  if (/(switch|toggle)/.test(nm)) {
+    const label = findFirstTextNode(n) || "";
+    return { name: "BaseSwitch", props: { label, checked: false } };
+  }
+
+  if (/(calendar|datepicker|date)/.test(nm)) {
+    return { name: "CalendarInput", props: { value: "" } };
+  }
+
+  if (/(slider|range)/.test(nm)) {
+    return { name: "RangeSlider", props: { min: 0, max: 100, value: 50 } };
+  }
+
+  if (/(hamburger)/.test(nm)) {
+    return { name: "HamburgerButton", props: {} };
+  }
+
+  if (/(menu)/.test(nm)) {
+    return { name: "MenuList", props: {} };
+  }
+
+  if (/(thumbnail|card)/.test(nm)) {
+    return { name: "ThumbnailCard", props: { title: findFirstTextNode(n) || "" } };
+  }
+
+  if (/(carousel|swiper|slide)/.test(nm)) {
+    return { name: "Carousel", props: {} };
+  }
+
+if (/(togglebutton|toggle-btn|togglebutton|togglebutton|toggle\s*button)/.test(nm)) {
+  const label = findFirstTextNode(n) || "";
+  return { name: "ToggleButton", props: { label, checked: false, intent: "primary", size: "md" } };
+}
+
+if (/(popup|modal|dialog)/.test(nm)) {
+  return { name: "Popup", props: { title: String(n?.name ?? "Popup") } };
+}
+
+if (/(loading|spinner)/.test(nm)) {
+  const label = findFirstTextNode(n) || "";
+  return { name: "Loading", props: { label, size: "md" } };
+}
+
+if (/(flag|badge|chip|tag)/.test(nm)) {
+  const text = findFirstTextNode(n) || "";
+  return { name: "Flag", props: { text, intent: "secondary" } };
+}
+
+if (/(tabs|tabbar|tab)/.test(nm)) {
+  return { name: "Tabs", props: { modelValue: "", tabs: [] } };
+}
+
+if (/(alert|confirm)/.test(nm)) {
+  return { name: "AlertDialog", props: { title: "알림", message: findFirstTextNode(n) || "" } };
+}
+
+  return null;
 }
 
 function rgbDistance(a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) {
@@ -377,6 +489,22 @@ export class DsMappingService {
   }
 
   private mapFrame(n: any, policy: Policy, diagnostics: A2UIDiagnostic[], parentFlexDirection?: "row" | "column"): DSNode {
+if (policy !== "RAW") {
+  const detected = detectFrameComponent(n);
+  if (detected) {
+    return {
+      id: n.id,
+      ref: n.ref,
+      kind: "component",
+      name: detected.name,
+      props: detected.props || {},
+      children: Array.isArray(n.children)
+        ? n.children.map((c: any) => this.mapNode(c, policy, diagnostics, n.layout?.direction))
+        : []
+    };
+  }
+}
+
     if (policy === "RAW") {
       const classes: string[] = [];
       const l = n.layout || {};

@@ -1,10 +1,15 @@
 export const useAuth = () => {
-  const token = useState<string | null>("auth_token", () => {
-    if (process.client) {
-      return localStorage.getItem("a2ui_token");
-    }
-    return null;
+  // SSR(새로고침/초기 로딩)에서도 인증 상태를 복원할 수 있도록 쿠키를 소스 오브 트루스로 사용합니다.
+  // 기존 사용자(로컬스토리지에만 토큰이 있는 경우)도 끊기지 않도록 클라이언트에서 쿠키로 마이그레이션합니다.
+  const token = useCookie<string | null>("a2ui_token", {
+    default: () => null,
+    sameSite: "lax",
   });
+
+  if (process.client && !token.value) {
+    const legacy = localStorage.getItem("a2ui_token");
+    if (legacy) token.value = legacy;
+  }
 
   const isAuthenticated = computed(() => !!token.value);
 

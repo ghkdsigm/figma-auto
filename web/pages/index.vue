@@ -67,7 +67,7 @@
                   </div>
 
                   <LoadingButton
-                    className="rounded-2xl bg-slate-900 px-4 py-3 font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 disabled:hover:bg-slate-900 whitespace-nowrap"
+                    className="rounded-2xl cursor-pointer bg-slate-900 px-4 py-3 font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 disabled:hover:bg-slate-900 whitespace-nowrap"
                     :loading="loading['createProject']"
                     :disabled="loading['createProject'] || !projectName.trim()"
                     @click="createProject"
@@ -157,7 +157,7 @@
 
                   <div class="flex flex-col sm:flex-row gap-3">
                     <LoadingButton
-                      className="rounded-2xl bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-white font-medium shadow-sm transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-60 whitespace-nowrap"
+                      className="rounded-2xl cursor-pointer bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-3 text-white font-medium shadow-sm transition hover:from-indigo-700 hover:to-blue-700 focus:outline-none focus:ring-4 focus:ring-indigo-200 disabled:opacity-60 whitespace-nowrap"
                       :loading="loading['importFigma']"
                       :disabled="loading['importFigma']"
                       @click="importFigma"
@@ -165,7 +165,7 @@
                       피그마에서 코드 노드 정보 가져오기
                     </LoadingButton>
                     <LoadingButton
-                      className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 whitespace-nowrap"
+                      className="rounded-2xl cursor-pointer border border-slate-200 bg-white/80 px-4 py-3 font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60 whitespace-nowrap"
                       :loading="loading['importSample']"
                       :disabled="loading['importSample']"
                       @click="importSample"
@@ -212,7 +212,7 @@
 
                   <div class="flex flex-col sm:flex-row flex-wrap gap-3">
                     <LoadingButton
-                      className="rounded-2xl bg-emerald-600 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:opacity-60"
+                      className="rounded-2xl cursor-pointer bg-emerald-600 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:opacity-60"
                       :loading="loading['uploadJson']"
                       :disabled="loading['uploadJson'] || !pickedJson"
                       @click="uploadJson"
@@ -220,7 +220,7 @@
                       업로드 JSON
                     </LoadingButton>
                     <LoadingButton
-                      className="rounded-2xl bg-slate-900 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                      className="rounded-2xl cursor-pointer bg-slate-900 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                       :loading="loading['uploadVue']"
                       :disabled="loading['uploadVue'] || !pickedJson"
                       @click="uploadJsonAndGenerate('vue')"
@@ -228,7 +228,7 @@
                       업로드 후 Vue 생성
                     </LoadingButton>
                     <LoadingButton
-                      className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                      className="rounded-2xl cursor-pointer border border-slate-200 bg-white/80 px-4 py-3 font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                       :loading="loading['uploadNuxt']"
                       :disabled="loading['uploadNuxt'] || !pickedJson"
                       @click="uploadJsonAndGenerate('nuxt')"
@@ -308,7 +308,7 @@
 
               <div class="grid gap-3 sm:grid-cols-2">
                 <LoadingButton
-                  className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                  className="w-full cursor-pointer rounded-2xl bg-slate-900 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                   :loading="loading['generateNuxt']"
                   :disabled="loading['generateNuxt']"
                   @click="generate('nuxt')"
@@ -316,7 +316,7 @@
                   Nuxt 생성
                 </LoadingButton>
                 <LoadingButton
-                  className="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 font-medium shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                  className="w-full cursor-pointer rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 font-medium shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                   :loading="loading['generateVue']"
                   :disabled="loading['generateVue']"
                   @click="generate('vue')"
@@ -341,7 +341,7 @@
                 <p class="mt-1 text-sm text-slate-600">생성된 artifact 목록을 확인하고 미리보기/다운로드 하세요.</p>
               </div>
               <LoadingButton
-                className="rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                className="rounded-2xl cursor-pointer border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
                 :loading="loading['loadArtifacts']"
                 :disabled="loading['loadArtifacts']"
                 @click="loadArtifacts"
