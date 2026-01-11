@@ -139,6 +139,150 @@ if (/(alert|confirm)/.test(nm)) {
   return null;
 }
 
+
+function joinHints(n: any): string {
+  const nm = String(n?.name ?? "");
+  const path = Array.isArray(n?.ref?.namePath)
+    ? n.ref.namePath.map((s: any) => String(s ?? "")).join("/")
+    : "";
+  return `${nm} ${path}`.trim();
+}
+
+function inferIntentFromFrame(n: any, ds: DesignSystem): "primary" | "secondary" | "danger" {
+  const hints = normalizeName(joinHints(n));
+  if (/(danger|delete|remove|red|error|warn)/.test(hints)) return "danger";
+  if (/(secondary|outline|ghost|tertiary|cancel)/.test(hints)) return "secondary";
+
+  const fill = n?.style?.fills?.[0]?.color;
+  const tokens = ds.tokens?.colors;
+  if (fill && tokens) {
+    const primary = tokens.primary;
+    const danger = tokens.danger;
+    const surface = tokens.surface;
+
+    const rgb = a2ToRgb255(fill);
+    const dPrimary = primary ? rgbDistance(rgb, primary) : Infinity;
+    const dDanger = danger ? rgbDistance(rgb, danger) : Infinity;
+    const dSurface = surface ? rgbDistance(rgb, surface) : Infinity;
+
+    const best = min3(dPrimary, dDanger, dSurface);
+    if (best === dDanger) return "danger";
+    if (best === dSurface) return "secondary";
+  }
+
+  return "primary";
+}
+
+function inferSizeFromFrame(n: any): "sm" | "md" | "lg" {
+  const h = px(n?.layout?.height);
+  if (h === undefined) return "md";
+  if (h <= 32) return "sm";
+  if (h <= 44) return "md";
+  return "lg";
+}
+
+function inferStrictComponentFromFrame(
+  n: any,
+  ds: DesignSystem
+): { name: string; props?: Record<string, any> } | null {
+  const hints = normalizeName(joinHints(n));
+  const label = findFirstTextNode(n) || "";
+
+  if (/(button|btn)/.test(hints) && label) {
+    return {
+      name: "BaseButton",
+      props: {
+        intent: inferIntentFromFrame(n, ds),
+        size: inferSizeFromFrame(n),
+        label
+      }
+    };
+  }
+
+  if (/(input|textfield|text-field|textbox)/.test(hints)) {
+    return { name: "BaseInput", props: { placeholder: label || "" } };
+  }
+
+  if (/(select|combobox|dropdown)/.test(hints)) {
+    return { name: "BaseSelect", props: { placeholder: label || "" } };
+  }
+
+  if (/(checkbox|check)/.test(hints)) {
+    return {
+      name: "BaseCheckbox",
+      props: { label: label || "", checked: false, size: inferSizeFromFrame(n) }
+    };
+  }
+
+  if (/(radio)/.test(hints)) {
+    return {
+      name: "BaseRadio",
+      props: { label: label || "", checked: false, name: "radio", size: inferSizeFromFrame(n) }
+    };
+  }
+
+  if (/(switch|toggle)/.test(hints)) {
+    return {
+      name: "BaseSwitch",
+      props: { label: label || "", checked: false, size: inferSizeFromFrame(n) }
+    };
+  }
+
+  if (/(calendar|datepicker|date)/.test(hints)) {
+    return { name: "CalendarInput", props: { value: "" } };
+  }
+
+  if (/(slider|range)/.test(hints)) {
+    return { name: "RangeSlider", props: { min: 0, max: 100, value: 50 } };
+  }
+
+  if (/(hamburger)/.test(hints)) {
+    return { name: "HamburgerButton", props: {} };
+  }
+
+  if (/(menu)/.test(hints)) {
+    return { name: "MenuList", props: {} };
+  }
+
+  if (/(thumbnail|card)/.test(hints)) {
+    return { name: "ThumbnailCard", props: { title: label || "" } };
+  }
+
+  if (/(carousel|swiper|slide)/.test(hints)) {
+    return { name: "Carousel", props: {} };
+  }
+
+  if (/(togglebutton|toggle-btn|toggle\s*button)/.test(hints)) {
+    return { name: "ToggleButton", props: { label: label || "", checked: false, intent: "primary", size: "md" } };
+  }
+
+  if (/(popup|modal|dialog)/.test(hints)) {
+    return { name: "Popup", props: { title: String(n?.name ?? "Popup") } };
+  }
+
+  if (/(loading|spinner)/.test(hints)) {
+    return { name: "Loading", props: { label: label || "", size: "md" } };
+  }
+
+  if (/(flag|badge|chip|tag)/.test(hints)) {
+    return { name: "Flag", props: { text: label || "", intent: "secondary" } };
+  }
+
+  if (/(tabs|tabbar|tab)/.test(hints)) {
+    return { name: "Tabs", props: { modelValue: "", tabs: [] } };
+  }
+
+  if (/(alert|confirm)/.test(hints)) {
+    return { name: "AlertDialog", props: { title: "알림", message: label || "" } };
+  }
+
+  return null;
+}
+
+function min3(a: number, b: number, c: number) {
+  return Math.min(a, b, c);
+}
+
 function rgbDistance(a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }) {
   const dr = a.r - b.r;
   const dg = a.g - b.g;
@@ -489,7 +633,21 @@ export class DsMappingService {
   }
 
   private mapFrame(n: any, policy: Policy, diagnostics: A2UIDiagnostic[], parentFlexDirection?: "row" | "column"): DSNode {
-if (policy !== "RAW") {
+    if (policy === "STRICT") {
+      const inferred = inferStrictComponentFromFrame(n, this.ds);
+      if (inferred) {
+        return {
+          id: n.id,
+          ref: n.ref,
+          kind: "component",
+          name: inferred.name,
+          props: inferred.props || {},
+          children: []
+        };
+      }
+    }
+
+    if (policy !== "RAW") {
   const detected = detectFrameComponent(n);
   if (detected) {
     return {
