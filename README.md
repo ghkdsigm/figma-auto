@@ -10,6 +10,14 @@
 
 ---
 
+## 디자인가이드
+1. “Button/MenuItem/Card/Modal같은 공통 요소는 반드시 Component + Variant로”
+2. “화면에는 Instance만 배치”
+3. “텍스트는 instance property로 바꿀 수 있게 Text property 사용(가능하면)”
+4. “Auto-layout 사용, 임의의 1px 오차/개별 수정 금지”
+
+---
+
 ## 빠른 링크
 
 - **웹(UI)**: `http://localhost:3001`
@@ -101,25 +109,119 @@ docker compose up -d --build
 
 ---
 
-## 프로젝트 구조 (핵심만)
+## 프로젝트 구조 (상세)
+
+아래 트리는 “코드 생성 파이프라인(Import → IR → DS 매핑 → Codegen → Artifact)” 기준으로 **실제 폴더/파일을 더 자세히** 펼쳐쓴 것입니다.
 
 ```
 figma-auto/
-├─ backend/                  # NestJS Backend (API)
-│  ├─ src/
-│  │  ├─ auth/               # 인증/로그인
-│  │  ├─ projects/           # 프로젝트 관리
-│  │  ├─ figma/              # Figma Import (API 연동)
-│  │  ├─ a2ui/               # A2UI IR 정의/변환
-│  │  ├─ ds-mapping/         # 디자인 시스템 매핑 (규칙 적용)
-│  │  ├─ codegen/            # 코드 생성 로직 (Vue/Nuxt 출력)
-│  │  ├─ jobs/               # 비동기 작업 처리 (Bull Queue)
-│  │  └─ prisma/             # Prisma 모듈
-│  ├─ prisma/                # DB 스키마/마이그레이션
-│  └─ design-system/         # 디자인 시스템 정의(토큰/컴포넌트 규칙)
-├─ web/                      # Nuxt Frontend
-├─ toolserver/               # 보조 변환/연동 서비스
-└─ docker-compose.yml         # postgres/redis/api/web/toolserver
+├─ docker-compose.yml                 # postgres/redis/api/web/toolserver 로컬 실행
+├─ README.md
+│
+├─ backend/                           # NestJS Backend (API, 파이프라인 오케스트레이션)
+│  ├─ Dockerfile
+│  ├─ docker-entrypoint.sh
+│  ├─ package.json
+│  ├─ nest-cli.json
+│  ├─ tsconfig.json
+│  │
+│  ├─ prisma/                         # DB 스키마/마이그레이션(Prisma)
+│  │  └─ schema.prisma                # User/Project/Import/Map/Artifact/Job 모델
+│  │
+│  ├─ design-system/                  # 디자인 시스템 정의(토큰/컴포넌트 룰)
+│  │  └─ design-system.json           # spacing/colors/typography + 컴포넌트 목록/옵션
+│  │
+│  ├─ samples/                        # 샘플 데이터
+│  │  └─ figma-file.sample.json
+│  │
+│  └─ src/
+│     ├─ main.ts                      # Nest bootstrap
+│     ├─ app.module.ts                # 루트 모듈(각 feature module 조립)
+│     │
+│     ├─ mcp/                         # toolserver 호출 클라이언트(HTTP RPC)
+│     │  ├─ mcp.client.ts             # TOOLSERVER_URL 기반 /tools/:name/invoke 호출
+│     │  └─ mcp.module.ts
+│     │
+│     ├─ auth/                        # 인증/로그인(JWT)
+│     │  ├─ auth.controller.ts         # /auth/login 등
+│     │  ├─ auth.service.ts            # admin bootstrap + bcrypt + jwt sign
+│     │  ├─ auth.module.ts
+│     │  ├─ jwt.strategy.ts
+│     │  ├─ guards.ts                  # JwtAuthGuard
+│     │  └─ dto.ts
+│     │
+│     ├─ projects/                    # 프로젝트 관리
+│     │  ├─ projects.controller.ts     # /projects (list/create)
+│     │  ├─ projects.service.ts        # slug 생성/중복 처리
+│     │  ├─ projects.module.ts
+│     │  └─ dto.ts
+│     │
+│     ├─ figma/                       # Figma Import (toolserver 통해 Figma API 연동)
+│     │  ├─ figma.module.ts
+│     │  └─ figma.service.ts           # getFile/getNodes + depth 제한 보완(expand)
+│     │
+│     ├─ a2ui/                        # A2UI IR 정의/변환(중간표현)
+│     │  ├─ spec.ts                    # A2UI 스키마 타입/구조
+│     │  ├─ a2ui.module.ts
+│     │  └─ a2ui.service.ts            # raw(Figma) → a2uiSpec 변환
+│     │
+│     ├─ ds-mapping/                  # 디자인 시스템 매핑(규칙 적용)
+│     │  ├─ spec.ts                    # DS 스키마 타입/구조
+│     │  ├─ ds-mapping.module.ts
+│     │  └─ ds-mapping.service.ts      # a2uiSpec → dsSpec(컴포넌트/토큰 치환, policy 반영)
+│     │
+│     ├─ codegen/                     # 코드 생성(Vue/Nuxt 출력) + zip 아티팩트 생성
+│     │  ├─ codegen.module.ts
+│     │  └─ codegen.service.ts         # dsSpec → 파일 생성 → zip(outputZip)
+│     │
+│     ├─ jobs/                        # 비동기 작업 처리(BullMQ)
+│     │  ├─ queue.constants.ts         # 큐 이름 등 상수
+│     │  ├─ jobs.module.ts
+│     │  ├─ jobs.service.ts            # enqueue/process + 파이프라인 조립(import→map→codegen)
+│     │  ├─ jobs.worker.ts             # Worker(concurrency) 실제 실행기
+│     │  ├─ jobs.controller.ts         # /projects/:projectId/import|generate|artifacts API
+│     │  └─ job-status.controller.ts   # /jobs/:jobId 상태 조회
+│     │
+│     └─ prisma/                      # Prisma DI 모듈
+│        ├─ prisma.module.ts
+│        └─ prisma.service.ts
+│
+├─ toolserver/                        # 보조 연동 서비스(Figma API 프록시 + 캐시)
+│  ├─ Dockerfile
+│  ├─ package.json
+│  └─ src/
+│     └─ index.js                      # /tools(목록), /tools/:name/invoke(figma.getFile/getNodes/getImages)
+│
+└─ web/                               # Nuxt Frontend (UI/미리보기/다운로드)
+   ├─ Dockerfile
+   ├─ package.json
+   ├─ nuxt.config.ts                   # runtimeConfig(public.apiBase 등)
+   ├─ tailwind.config.js
+   ├─ app.vue
+   │
+   ├─ middleware/
+   │  └─ auth.ts                       # 비로그인 시 /login 리다이렉트
+   │
+   ├─ composables/
+   │  └─ useAuth.ts                    # 토큰 쿠키 관리 + authHeaders 생성
+   │
+   ├─ pages/
+   │  ├─ login.vue                     # /auth/login 호출
+   │  ├─ index.vue                     # 프로젝트 생성/임포트/생성/미리보기 진입
+   │  └─ preview.vue                   # 최신 맵/결과 렌더(미리보기)
+   │
+   ├─ components/
+   │  ├─ a2ui/
+   │  │  ├─ DsRenderer.vue             # dsSpec 렌더링(미리보기 핵심)
+   │  │  └─ GeneratedFromFigma.vue
+   │  └─ common/
+   │     ├─ LoadingButton.vue
+   │     └─ Spinner.vue
+   │
+   └─ assets/
+      └─ img/
+         ├─ image.png
+         └─ image2.png
 ```
 
 ---
@@ -153,6 +255,18 @@ Artifacts (zip)
 - Username: `company`
 - Password: `company_pw`
 - Schema: `public`
+
+
+### 프롬프트 추천문구
+```
+UI/레이아웃은 절대 바꾸지 말 것(픽셀/간격/정렬 유지)
+
+div/span 구조를 공통 컴포넌트로만 치환할 것
+
+치환이 애매하면 원래 div 유지하고 TODO 남길 것
+
+한 번에 많이 바꾸지 말고 컴포넌트 종류별로 단계적 적용할 것
+```
 
 **JDBC URL**
 
