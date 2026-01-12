@@ -109,32 +109,32 @@ function detectFrameComponent(n: any): { name: string; props?: Record<string, an
     return { name: "Carousel", props: {} };
   }
 
-if (/(togglebutton|toggle-btn|togglebutton|togglebutton|toggle\s*button)/.test(nm)) {
-  const label = findFirstTextNode(n) || "";
-  return { name: "ToggleButton", props: { label, checked: false, intent: "primary", size: "md" } };
-}
+  if (/(togglebutton|toggle-btn|togglebutton|togglebutton|toggle\s*button)/.test(nm)) {
+    const label = findFirstTextNode(n) || "";
+    return { name: "ToggleButton", props: { label, checked: false, intent: "primary", size: "md" } };
+  }
 
-if (/(popup|modal|dialog)/.test(nm)) {
-  return { name: "Popup", props: { title: String(n?.name ?? "Popup") } };
-}
+  if (/(popup|modal|dialog)/.test(nm)) {
+    return { name: "Popup", props: { title: String(n?.name ?? "Popup") } };
+  }
 
-if (/(loading|spinner)/.test(nm)) {
-  const label = findFirstTextNode(n) || "";
-  return { name: "Loading", props: { label, size: "md" } };
-}
+  if (/(loading|spinner)/.test(nm)) {
+    const label = findFirstTextNode(n) || "";
+    return { name: "Loading", props: { label, size: "md" } };
+  }
 
-if (/(flag|badge|chip|tag)/.test(nm)) {
-  const text = findFirstTextNode(n) || "";
-  return { name: "Flag", props: { text, intent: "secondary" } };
-}
+  if (/(flag|badge|chip|tag)/.test(nm)) {
+    const text = findFirstTextNode(n) || "";
+    return { name: "Flag", props: { text, intent: "secondary" } };
+  }
 
-if (/(tabs|tabbar|tab)/.test(nm)) {
-  return { name: "Tabs", props: { modelValue: "", tabs: [] } };
-}
+  if (/(tabs|tabbar|tab)/.test(nm)) {
+    return { name: "Tabs", props: { modelValue: "", tabs: [] } };
+  }
 
-if (/(alert|confirm)/.test(nm)) {
-  return { name: "AlertDialog", props: { title: "알림", message: findFirstTextNode(n) || "" } };
-}
+  if (/(alert|confirm)/.test(nm)) {
+    return { name: "AlertDialog", props: { title: "알림", message: findFirstTextNode(n) || "" } };
+  }
 
   return null;
 }
