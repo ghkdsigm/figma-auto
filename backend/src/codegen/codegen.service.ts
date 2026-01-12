@@ -59,6 +59,392 @@ E. 빌드/런 기준으로 깨지는 부분 수정
 `;
 }
 
+function buildReadmeRefactorMarkdown() {
+  // Cursor/LLM에게 반복 설명을 줄이기 위한 최소 지침 (의도적으로 짧게 유지)
+  return `UI 변경 금지
+// 가능하면 components/의 공통 컴포넌트로 치환(BaseButton/BaseInput/BaseSelect/BaseCheckbox/BaseRadio/BaseSwitch 등)
+// 확신 없으면 div 유지
+app.vue 및 모든 Vue 파일의 들여쓰기/줄맞춤을 정리한다(가독성 좋은 포맷팅)
+
+그리고 이제부터 app.vue를 바꿔주면돼 UI/레이아웃은 절대 바꾸지 말 것(픽셀/간격/정렬 유지)
+
+manifest.json의 cursorGuidance.preferComponents에 있는 공통 컴포넌트를 임포트해서 최대한 치환해라
+
+div/span 구조를 공통 컴포넌트로만 치환할 것
+
+치환이 애매하면 원래 div 유지하고 TODO 남길 것
+
+치환 시 스타일 처리 규칙
+- “치환해도 기존 class/style는 유지(필요하면 wrapper div로 보존)”
+- “props로 옮길 수 있는 것만 옮기고, 나머지는 class로 유지”
+
+입력 컴포넌트(BaseInput, BaseSelect, CalendarInput, BaseTextarea 등)를 감싸고 있는 스타일 wrapper div를 모두 제거하고, 그 스타일을 해당 입력 컴포넌트에 통합해줘
+
+App.vue에 script setup을 추가하고, 현재 사용 중인 모든 공통 컴포넌트들을 컴포넌트별 props/이벤트 규칙에 맞게 연결해줘. 입력 컴포넌트는 v-model, 체크/토글은 v-model:checked, 버튼은 이벤트 핸들러로. 기본값은 화면에 보이는 값으로 설정해줘
+`;
+}
+
+type ManifestPropSummary = {
+  types: string[];
+  examples?: Array<string | number | boolean | null>;
+};
+
+type Manifest = {
+  schemaVersion: "0.1";
+  generatedAt: string;
+  policy: string;
+  target: string;
+  designSystem?: { name?: string; tokensVersion?: string; pathTried: string[] };
+  commonComponents: string[];
+  generatedComponents: string[];
+  componentPropsSummary: Record<string, Record<string, ManifestPropSummary>>;
+  cursorGuidance?: {
+    uiChangeForbidden: boolean;
+    preferComponents: string[];
+    fallbackRule: string;
+    note?: string;
+  };
+  rawCandidatePatterns?: Array<{
+    candidate: string;
+    confidence: "high" | "medium";
+    reason: string;
+    exampleTag: string;
+    exampleClasses: string[];
+    occurrences: number;
+  }>;
+  hints?: {
+    diagnosticsSample?: Array<{
+      severity: "info" | "warn" | "error";
+      code: string;
+      message: string;
+      nodeId?: string;
+      namePath?: string;
+    }>;
+  };
+};
+
+function safeExample(v: any): string | number | boolean | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "string") return v.length > 120 ? v.slice(0, 117) + "..." : v;
+  if (typeof v === "number" || typeof v === "boolean") return v;
+  // object/array는 예시로 넣으면 너무 커지는 경우가 많아서 스킵
+  return undefined;
+}
+
+function valueType(v: any): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+
+function loadDesignSystemForManifest(): {
+  ds: any | null;
+  pathTried: string[];
+} {
+  const pathTried: string[] = [];
+  const candidates = [
+    path.join(process.cwd(), "design-system", "design-system.json"),
+    // dist 실행 시 cwd가 달라질 수 있어 __dirname 기반도 시도
+    path.resolve(__dirname, "../../design-system/design-system.json"),
+  ];
+
+  for (const p of candidates) {
+    try {
+      pathTried.push(p);
+      const raw = fs.readFileSync(p, "utf-8");
+      return { ds: JSON.parse(raw), pathTried };
+    } catch {
+      // try next
+    }
+  }
+  return { ds: null, pathTried };
+}
+
+function collectComponentPropsSummary(dsRoot: DSRoot): Record<string, Record<string, ManifestPropSummary>> {
+  const out: Record<string, Record<string, { typeSet: Set<string>; examples: Array<string | number | boolean | null> }>> = {};
+
+  const visit = (n: DSNode | undefined) => {
+    if (!n) return;
+    if (n.kind === "component") {
+      const name = String(n.name || "");
+      if (!out[name]) out[name] = {};
+      const props = n.props || {};
+      for (const [k, v] of Object.entries(props)) {
+        if (!out[name][k]) out[name][k] = { typeSet: new Set<string>(), examples: [] };
+        out[name][k].typeSet.add(valueType(v));
+        const ex = safeExample(v);
+        if (ex !== undefined && out[name][k].examples.length < 3) out[name][k].examples.push(ex);
+      }
+    }
+    for (const c of n.children || []) visit(c);
+  };
+
+  visit(dsRoot.tree);
+
+  const finalized: Record<string, Record<string, ManifestPropSummary>> = {};
+  for (const [comp, props] of Object.entries(out)) {
+    finalized[comp] = {};
+    for (const [k, v] of Object.entries(props)) {
+      finalized[comp][k] = {
+        types: Array.from(v.typeSet).sort(),
+        ...(v.examples.length ? { examples: v.examples } : {}),
+      };
+    }
+  }
+  return finalized;
+}
+
+function parseDefinePropsSpec(vueSource: string): Record<string, ManifestPropSummary> {
+  // 매우 단순 파서: defineProps<{ ... }>() 형태만 지원한다 (현재 codegen 템플릿에 충분)
+  const m = vueSource.match(/defineProps\s*<\s*\{([\s\S]*?)\}\s*>\s*\(\s*\)\s*;?/);
+  if (!m) return {};
+  const body = m[1] || "";
+
+  const out: Record<string, ManifestPropSummary> = {};
+  const lines = body
+    .split("\n")
+    .map((l) => l.replace(/\/\/.*$/g, "").trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const mm = line.match(/^([A-Za-z_]\w*)\s*(\?)?\s*:\s*([^;]+);?$/);
+    if (!mm) continue;
+    const key = mm[1];
+    const type = mm[3].trim();
+    // optional 여부는 manifest에 굳이 넣지 않고 타입 문자열로만 요약
+    out[key] = { types: [type] };
+  }
+
+  return out;
+}
+
+function collectGeneratedComponentPropsSpec(): Record<string, Record<string, ManifestPropSummary>> {
+  const sources = getComponentSources() as Record<string, string>;
+  const out: Record<string, Record<string, ManifestPropSummary>> = {};
+  for (const [name, src] of Object.entries(sources)) {
+    const spec = parseDefinePropsSpec(src);
+    if (Object.keys(spec).length) out[name] = spec;
+  }
+  return out;
+}
+
+function mergePropsSummary(
+  a: Record<string, Record<string, ManifestPropSummary>>,
+  b: Record<string, Record<string, ManifestPropSummary>>
+): Record<string, Record<string, ManifestPropSummary>> {
+  const out: Record<string, Record<string, ManifestPropSummary>> = { ...a };
+  for (const [comp, props] of Object.entries(b)) {
+    if (!out[comp]) out[comp] = {};
+    for (const [k, v] of Object.entries(props)) {
+      if (!out[comp][k]) {
+        out[comp][k] = { types: [...(v.types || [])], ...(v.examples ? { examples: [...v.examples] } : {}) };
+        continue;
+      }
+      const prev = out[comp][k];
+      const typeSet = new Set([...(prev.types || []), ...(v.types || [])]);
+      const ex = [
+        ...((prev.examples || []) as Array<string | number | boolean | null>),
+        ...((v.examples || []) as Array<string | number | boolean | null>),
+      ].slice(0, 3);
+      out[comp][k] = { types: Array.from(typeSet).sort(), ...(ex.length ? { examples: ex } : {}) };
+    }
+  }
+  return out;
+}
+
+function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatterns"] {
+  const policy = dsRoot?.meta?.policy;
+  if (policy !== "RAW") return undefined;
+
+  type Hit = {
+    candidate: string;
+    confidence: "high" | "medium";
+    reason: string;
+    exampleTag: string;
+    exampleClasses: string[];
+    occurrences: number;
+  };
+
+  const keyOf = (tag: string, classes: string[]) =>
+    `${tag}::${classes.filter(Boolean).slice().sort().join(" ")}`;
+
+  const counts = new Map<string, Hit>();
+
+  const classify = (tag: string, classes: string[]): Omit<Hit, "occurrences"> | null => {
+    const hasRounded = classes.some((c) => c === "rounded" || c.startsWith("rounded-") || c.startsWith("rounded["));
+    const hasBg = classes.some((c) => c === "bg" || c.startsWith("bg-") || c.startsWith("bg["));
+    const hasPxPy = classes.some((c) => c.startsWith("px-") || c.startsWith("py-") || c.startsWith("p-") || c.startsWith("p["));
+    const hasBorder = classes.includes("border") || classes.some((c) => c.startsWith("border-") || c.startsWith("border["));
+    const hasFocusRing = classes.some((c) => c.includes("focus:ring"));
+
+    if (tag === "button") {
+      if (hasRounded && hasBg && hasPxPy) {
+        return {
+          candidate: "BaseButton",
+          confidence: "high",
+          reason: "button 태그 + bg/px(py)/rounded 조합(버튼 스타일 가능성 높음)",
+          exampleTag: tag,
+          exampleClasses: classes,
+        };
+      }
+      if (hasRounded && (hasBg || hasBorder)) {
+        return {
+          candidate: "BaseButton",
+          confidence: "medium",
+          reason: "button 태그 + rounded + (bg 또는 border) 조합(버튼 후보)",
+          exampleTag: tag,
+          exampleClasses: classes,
+        };
+      }
+    }
+
+    if (tag === "input") {
+      if (hasRounded && hasBorder && hasFocusRing) {
+        return {
+          candidate: "BaseInput",
+          confidence: "high",
+          reason: "input 태그 + border/rounded/focus:ring 조합(인풋 스타일 가능성 높음)",
+          exampleTag: tag,
+          exampleClasses: classes,
+        };
+      }
+      if (hasRounded && hasBorder) {
+        return {
+          candidate: "BaseInput",
+          confidence: "medium",
+          reason: "input 태그 + border/rounded 조합(인풋 후보)",
+          exampleTag: tag,
+          exampleClasses: classes,
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const isTextLike = (n: DSNode) => {
+    if (n.kind !== "element") return false;
+    const props: any = n.props || {};
+    return typeof props.text === "string" && String(props.text).trim().length > 0;
+  };
+
+  const looksLikeInput = (n: DSNode) => n.kind === "element" && n.name === "input";
+
+  const classifyContainerAsFormField = (n: DSNode): Omit<Hit, "occurrences"> | null => {
+    // 매우 보수적으로: 같은 컨테이너(children)에 "텍스트 라벨" + "input"이 같이 있으면 FormField 후보로 본다.
+    if (!n || n.kind !== "element") return null;
+    const tag = String(n.name || "");
+    if (tag !== "div" && tag !== "form" && tag !== "section") return null;
+    const kids = Array.isArray(n.children) ? n.children : [];
+    if (kids.length < 2 || kids.length > 6) return null;
+
+    const hasInput = kids.some(looksLikeInput);
+    const textKids = kids.filter(isTextLike);
+
+    if (!hasInput || textKids.length !== 1) return null;
+
+    const classes = Array.isArray(n.classes) ? n.classes.filter(Boolean) : [];
+    const hasFlexCol = classes.includes("flex") && classes.some((c) => c === "flex-col" || c.includes("flex-col"));
+    const hasGap = classes.some((c) => c.startsWith("gap-") || c.startsWith("gap["));
+
+    // confidence는 레이아웃 힌트가 있으면 high, 아니면 medium
+    const confidence: "high" | "medium" = hasFlexCol || hasGap ? "high" : "medium";
+
+    return {
+      candidate: "FormField",
+      confidence,
+      reason:
+        confidence === "high"
+          ? "컨테이너(div) 내부에 라벨 텍스트 1개 + input 1개가 있고, flex-col/gap 힌트가 있어 FormField 구조 가능성 높음"
+          : "컨테이너(div) 내부에 라벨 텍스트 1개 + input 1개가 있어 FormField 후보",
+      exampleTag: tag,
+      exampleClasses: classes,
+    };
+  };
+
+  const visit = (n: DSNode | undefined) => {
+    if (!n) return;
+    if (n.kind === "element" && (n.name === "button" || n.name === "input") && Array.isArray(n.classes)) {
+      const classes = n.classes.filter(Boolean);
+      const hit = classify(n.name, classes);
+      if (hit) {
+        const key = keyOf(n.name, classes);
+        const prev = counts.get(key);
+        if (prev) prev.occurrences += 1;
+        else counts.set(key, { ...hit, occurrences: 1 });
+      }
+    }
+
+    // FormField 후보는 컨테이너 패턴에서 추출
+    if (n.kind === "element") {
+      const hit = classifyContainerAsFormField(n);
+      if (hit) {
+        const classes = Array.isArray(n.classes) ? n.classes.filter(Boolean) : [];
+        const key = keyOf(`FormField@${n.name}`, classes);
+        const prev = counts.get(key);
+        if (prev) prev.occurrences += 1;
+        else counts.set(key, { ...hit, occurrences: 1 });
+      }
+    }
+    for (const c of n.children || []) visit(c);
+  };
+
+  visit(dsRoot.tree);
+
+  const all = Array.from(counts.values());
+  const score = (h: Hit) => (h.confidence === "high" ? 1_000_000 : 0) + h.occurrences;
+
+  return all
+    .sort((a, b) => score(b) - score(a))
+    .slice(0, 8);
+}
+
+function buildManifestJson(dsRoot: DSRoot, target: string): string {
+  const { ds, pathTried } = loadDesignSystemForManifest();
+  const dsComponents = Object.keys(ds?.components || {}).sort();
+  const generatedComponents = Object.keys(getComponentSources()).sort();
+  const commonComponents = Array.from(new Set([...dsComponents, ...generatedComponents])).sort();
+
+  const observedProps = collectComponentPropsSummary(dsRoot);
+  const generatedPropsSpec = collectGeneratedComponentPropsSpec();
+  const componentPropsSummary = mergePropsSummary(generatedPropsSpec, observedProps);
+
+  const diagnosticsSample = (dsRoot?.diagnostics || [])
+    .filter((d) => typeof d?.code === "string" && (/^HEURISTIC_/.test(d.code) || /^DS_/.test(d.code)))
+    .slice(0, 25)
+    .map((d) => ({
+      severity: d.severity,
+      code: d.code,
+      message: d.message,
+      nodeId: d.nodeId,
+      namePath: Array.isArray(d?.ref?.namePath) ? d.ref!.namePath!.join("/") : undefined,
+    }));
+
+  const manifest: Manifest = {
+    schemaVersion: "0.1",
+    generatedAt: new Date().toISOString(),
+    policy: String(dsRoot?.meta?.policy || "RAW"),
+    target: String(target || "nuxt"),
+    ...(ds
+      ? { designSystem: { name: ds?.name, tokensVersion: ds?.tokensVersion, pathTried } }
+      : { designSystem: { pathTried } }),
+    commonComponents,
+    generatedComponents,
+    componentPropsSummary,
+    cursorGuidance: {
+      uiChangeForbidden: true,
+      preferComponents: commonComponents,
+      fallbackRule: "치환 확신이 없거나 UI가 바뀔 위험이 있으면 기존 div/구조 유지(치환 강행 금지)",
+      note: "RAW 출력물은 '날코딩'이므로, components/의 공통 컴포넌트를 최대한 임포트/치환하되 UI 변경은 금지한다.",
+    },
+    ...(dsRoot?.meta?.policy === "RAW" ? { rawCandidatePatterns: collectRawCandidatePatterns(dsRoot) } : {}),
+    ...(diagnosticsSample.length ? { hints: { diagnosticsSample } } : {}),
+  };
+
+  return JSON.stringify(manifest, null, 2);
+}
+
 
 function escapeAttr(s: string) {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -131,6 +517,10 @@ function renderNode(n: DSNode): string {
 
   if (tag === "BaseInput") {
     return `<BaseInput${cls}${props} />`;
+  }
+
+  if (tag === "BaseTextarea") {
+    return `<BaseTextarea${cls}${props} />`;
   }
 
   if (tag === "BaseSelect") {
@@ -267,6 +657,7 @@ type ComponentSources = {
   BaseButton: string;
   Typography: string;
   BaseInput: string;
+  BaseTextarea: string;
   UnsafeBox: string;
   BaseSelect: string;
   BaseCheckbox: string;
@@ -383,6 +774,40 @@ const cls = computed(() =>
   "px-3 py-2 rounded-lg border border-[var(--ds-border)] w-full focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)]"
 );
 const placeholder = computed(() => props.placeholder || "");
+</script>
+`;
+
+  const BaseTextarea = `<template>
+  <textarea
+    :class="cls"
+    :placeholder="placeholder"
+    :rows="rows"
+    :value="modelValue"
+    @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
+  ></textarea>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+
+const props = defineProps<{
+  placeholder?: string;
+  modelValue?: string;
+  rows?: number;
+}>();
+
+defineEmits<{ (e: "update:modelValue", v: string): void }>();
+
+const cls = computed(() =>
+  [
+    "px-3 py-2 rounded-lg border border-[var(--ds-border)] w-full",
+    "focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)]",
+    "min-h-[96px] resize-y"
+  ].join(" ")
+);
+const placeholder = computed(() => props.placeholder || "");
+const modelValue = computed(() => props.modelValue || "");
+const rows = computed(() => (typeof props.rows === "number" && props.rows > 0 ? props.rows : 3));
 </script>
 `;
 
@@ -824,6 +1249,7 @@ defineEmits<{ (e: "cancel"): void; (e: "confirm"): void }>();
     BaseButton,
     Typography,
     BaseInput,
+    BaseTextarea,
     UnsafeBox,
     BaseSelect,
     BaseCheckbox,
@@ -943,6 +1369,7 @@ import diagnostics from "~/generated/diagnostics.json";
     "components/BaseButton.vue": c.BaseButton,
     "components/Typography.vue": c.Typography,
     "components/BaseInput.vue": c.BaseInput,
+    "components/BaseTextarea.vue": c.BaseTextarea,
     "components/UnsafeBox.vue": c.UnsafeBox,
     "components/BaseSelect.vue": c.BaseSelect,
     "components/BaseCheckbox.vue": c.BaseCheckbox,
@@ -1072,6 +1499,7 @@ import "./styles/tailwind.css";
 import BaseButton from "./components/BaseButton.vue";
 import Typography from "./components/Typography.vue";
 import BaseInput from "./components/BaseInput.vue";
+import BaseTextarea from "./components/BaseTextarea.vue";
 import UnsafeBox from "./components/UnsafeBox.vue";
 
 import BaseSelect from "./components/BaseSelect.vue";
@@ -1097,6 +1525,7 @@ const app = createApp(App);
 app.component("BaseButton", BaseButton);
 app.component("Typography", Typography);
 app.component("BaseInput", BaseInput);
+app.component("BaseTextarea", BaseTextarea);
 app.component("UnsafeBox", UnsafeBox);
 
 app.component("BaseSelect", BaseSelect);
@@ -1124,6 +1553,7 @@ app.mount("#app");
     "src/components/BaseButton.vue": c.BaseButton,
     "src/components/Typography.vue": c.Typography,
     "src/components/BaseInput.vue": c.BaseInput,
+    "src/components/BaseTextarea.vue": c.BaseTextarea,
     "src/components/UnsafeBox.vue": c.UnsafeBox,
     "src/components/BaseSelect.vue": c.BaseSelect,
     "src/components/BaseCheckbox.vue": c.BaseCheckbox,
@@ -1282,6 +1712,8 @@ export class CodegenService {
     files = {
       ...files,
       "README.md": buildReadmeMarkdown(t),
+      "README_refactor.md": buildReadmeRefactorMarkdown(),
+      "manifest.json": buildManifestJson(dsRoot, t),
     };
   
     for (const [rel, content] of Object.entries(files)) {

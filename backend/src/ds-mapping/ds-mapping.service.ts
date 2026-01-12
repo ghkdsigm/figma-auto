@@ -19,6 +19,7 @@ type DesignSystem = {
     BaseButton?: { intents: string[]; sizes: string[] };
     Typography?: { variants: string[] };
     BaseInput?: {};
+    BaseTextarea?: {};
     BaseSelect?: { sizes: string[] };
     BaseCheckbox?: { sizes: string[] };
     BaseRadio?: { sizes: string[] };
@@ -64,6 +65,11 @@ function findFirstTextNode(n: any): string {
 function detectFrameComponent(n: any): { name: string; props?: Record<string, any> } | null {
   const nm = normalizeName(String(n?.name ?? ""));
   if (!nm) return null;
+
+  if (/(textarea|multiline)/.test(nm)) {
+    const placeholder = findFirstTextNode(n) || "";
+    return { name: "BaseTextarea", props: { placeholder } };
+  }
 
   if (/(select|combobox|dropdown)/.test(nm)) {
     const placeholder = findFirstTextNode(n) || "";
@@ -197,6 +203,10 @@ function inferStrictComponentFromFrame(
         label
       }
     };
+  }
+
+  if (/(textarea|multiline)/.test(hints)) {
+    return { name: "BaseTextarea", props: { placeholder: label || "" } };
   }
 
   if (/(input|textfield|text-field|textbox)/.test(hints)) {

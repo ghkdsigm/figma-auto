@@ -92,6 +92,7 @@
       ]
     },
     "BaseInput": {},
+    "BaseTextarea": {},
     "UnsafeBox": {},
     "BaseSelect": {
       "sizes": [

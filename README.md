@@ -261,11 +261,17 @@ Artifacts (zip)
 ```
 UI/레이아웃은 절대 바꾸지 말 것(픽셀/간격/정렬 유지)
 
+manifest.json의 cursorGuidance.preferComponents에 있는 공통 컴포넌트를 임포트해서 최대한 치환해라
+
 div/span 구조를 공통 컴포넌트로만 치환할 것
 
 치환이 애매하면 원래 div 유지하고 TODO 남길 것
 
 한 번에 많이 바꾸지 말고 컴포넌트 종류별로 단계적 적용할 것
+
+치환 시 스타일 처리 규칙
+- “치환해도 기존 class/style는 유지(필요하면 wrapper div로 보존)”
+- “props로 옮길 수 있는 것만 옮기고, 나머지는 class로 유지”
 ```
 
 **JDBC URL**

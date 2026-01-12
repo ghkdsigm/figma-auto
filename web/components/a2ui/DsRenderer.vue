@@ -11,6 +11,13 @@
     </component>
 
     <input v-else-if="isBaseInput" :class="baseInputClass" :placeholder="String(node.props?.placeholder ?? '')" />
+
+    <textarea
+      v-else-if="isBaseTextarea"
+      :class="baseTextareaClass"
+      :placeholder="String(node.props?.placeholder ?? '')"
+      :rows="Number(node.props?.rows ?? 3)"
+    ></textarea>
 <select
   v-else-if="isBaseSelect"
   :class="baseSelectClass"
@@ -167,6 +174,7 @@ const node = computed(() => props.node);
 const isBaseButton = computed(() => node.value?.kind === "component" && node.value?.name === "BaseButton");
 const isTypography = computed(() => node.value?.kind === "component" && node.value?.name === "Typography");
 const isBaseInput = computed(() => node.value?.kind === "component" && node.value?.name === "BaseInput");
+const isBaseTextarea = computed(() => node.value?.kind === "component" && node.value?.name === "BaseTextarea");
 const isUnsafeBox = computed(() => node.value?.kind === "component" && node.value?.name === "UnsafeBox");
 const isBaseSelect = computed(() => node.value?.kind === "component" && node.value?.name === "BaseSelect");
 const isBaseCheckbox = computed(() => node.value?.kind === "component" && node.value?.name === "BaseCheckbox");
@@ -273,6 +281,10 @@ const typographyClass = computed(() => {
 
 const baseInputClass = computed(() => {
   return "px-3 py-2 rounded-lg border border-[var(--ds-border)] w-full focus:outline-none focus:ring-2 focus:ring-[var(--ds-primary)]";
+});
+
+const baseTextareaClass = computed(() => {
+  return [baseInputClass.value, "min-h-[96px] resize-y"].join(" ");
 });
 
 const baseSelectClass = computed(() => {
