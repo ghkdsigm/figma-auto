@@ -415,7 +415,12 @@ export class DsMappingService {
   map(root: A2UIRoot, policy: Policy = "TOLERANT"): DSRoot {
     const diagnostics: A2UIDiagnostic[] = [...(root.diagnostics || [])];
 
-    const tree = this.mapNode(root.tree, policy, diagnostics);
+    // MIXED는 "RAW 기반(디자인 우선, Figma 그대로)"으로 DS 스펙을 만들고,
+    // 이후 codegen 단계에서 GPT 후처리로 div 중첩 최소화/데이터 바인딩 등을 수행한다.
+    // 즉, MIXED는 매핑 단계에서 컴포넌트 치환을 강하게 하지 않는다.
+    const effectivePolicy: Policy = policy === "MIXED" ? "RAW" : policy;
+
+    const tree = this.mapNode(root.tree, effectivePolicy, diagnostics);
 
     const out: DSRoot = {
       version: "0.1",

@@ -32,19 +32,22 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_started }
       toolserver: { condition: service_started }
-    ports: ["3000:3000"]
+    # Windows can reserve/exclude port 3000 (see `netsh int ipv4 show excludedportrange protocol=tcp`),
+    # which prevents Docker from binding. Use a non-excluded host port by default.
+    ports: ["${API_PORT:-3100}:3000"]
     volumes: ["artifacts:/data/artifacts"]
 
   web:
     build: { context: ./web }
     environment:
-      NUXT_PUBLIC_API_BASE: http://localhost:3000
+      # Must match the host-side API port mapping above.
+      NUXT_PUBLIC_API_BASE: "http://localhost:${API_PORT:-3100}"
       PORT: 3001
       HOST: 0.0.0.0
       NITRO_PORT: 3001
       NITRO_HOST: 0.0.0.0
     depends_on: [api]
-    ports: ["3001:3001"]
+    ports: ["${WEB_PORT:-3101}:3001"]
 
 
 volumes:

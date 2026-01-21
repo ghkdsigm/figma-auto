@@ -9,6 +9,8 @@ import { FigmaService } from "../figma/figma.service";
 import { A2uiService } from "../a2ui/a2ui.service";
 import { DsMappingService } from "../ds-mapping/ds-mapping.service";
 import { CodegenService } from "../codegen/codegen.service";
+// adm-zip ships commonjs; use require to avoid TS esModuleInterop issues
+const AdmZip = require("adm-zip");
 
 type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
 
@@ -497,11 +499,50 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     } catch {
       // ignore preview-only asset resolution failures
     }
+
+    const tryReadZipFiles = (): Record<string, string> | null => {
+      const zipPath = String(a.outputZip || "");
+      if (!zipPath) return null;
+      try {
+        const zip = new AdmZip(zipPath);
+        const entries = zip.getEntries() || [];
+        const out: Record<string, string> = {};
+
+        for (const e of entries) {
+          if (!e || e.isDirectory) continue;
+          const name = String(e.entryName || "");
+          // avoid huge/binary files
+          const lower = name.toLowerCase();
+          const isTextLike =
+            lower.endsWith(".vue") ||
+            lower.endsWith(".ts") ||
+            lower.endsWith(".js") ||
+            lower.endsWith(".json") ||
+            lower.endsWith(".md") ||
+            lower.endsWith(".css") ||
+            lower.endsWith(".txt") ||
+            lower.endsWith(".html") ||
+            lower.endsWith(".config.js") ||
+            lower.endsWith(".config.ts");
+          if (!isTextLike) continue;
+          // adm-zip returns Buffer for binary entries; convert to utf8 for text-like extensions
+          out[name] = zip.readAsText(e, "utf8");
+        }
+
+        return Object.keys(out).length ? out : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const zipFiles = tryReadZipFiles();
     return {
       ok: true,
       target: a.target,
       dsSpec: dsRoot,
-      files: this.codegen.renderVueSources(dsRoot, a.target)
+      // Prefer the actual generated ZIP sources (so MIXED+GPT 후처리 결과도 미리보기에서 그대로 보임)
+      // Fallback: regenerate sources from dsSpec (legacy behavior)
+      files: zipFiles || this.codegen.renderVueSources(dsRoot, a.target)
     };
   }
 

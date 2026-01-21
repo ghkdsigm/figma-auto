@@ -1,5 +1,5 @@
 /* backend/src/codegen/codegen.service.ts */
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -8,6 +8,85 @@ import { v4 as uuid } from "uuid";
 import type { DSRoot, DSNode } from "../ds-mapping/spec";
 import axios from "axios";
 import { McpClient } from "../mcp/mcp.client";
+
+function stripMarkdownCodeFences(s: string): string {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  // Remove leading/trailing ``` fences (optionally with language tags)
+  const fenced = t.match(/^```[\w-]*\s*\n([\s\S]*?)\n```$/);
+  if (fenced) return String(fenced[1] || "").trim();
+  return t;
+}
+
+function packRepeatedAttrs(vueSource: string): {
+  packed: string;
+  classMap: Record<string, string>;
+  styleMap: Record<string, string>;
+} {
+  const src = String(vueSource || "");
+
+  const classToToken = new Map<string, string>();
+  const styleToToken = new Map<string, string>();
+  const classMap: Record<string, string> = {};
+  const styleMap: Record<string, string> = {};
+
+  let classIdx = 0;
+  let styleIdx = 0;
+
+  const getClassToken = (val: string) => {
+    const v = String(val ?? "");
+    const prev = classToToken.get(v);
+    if (prev) return prev;
+    classIdx += 1;
+    const tok = `__CLS_${classIdx}__`;
+    classToToken.set(v, tok);
+    classMap[tok] = v;
+    return tok;
+  };
+
+  const getStyleToken = (val: string) => {
+    const v = String(val ?? "");
+    const prev = styleToToken.get(v);
+    if (prev) return prev;
+    styleIdx += 1;
+    const tok = `__STYLE_${styleIdx}__`;
+    styleToToken.set(v, tok);
+    styleMap[tok] = v;
+    return tok;
+  };
+
+  // Replace class="...": keep as opaque token to reduce repetition
+  let packed = src.replace(/\bclass="([^"]*)"/g, (_m, v) => {
+    const vv = String(v ?? "");
+    if (!vv.trim()) return `class=""`;
+    // If it's already a placeholder, keep it.
+    if (/^__CLS_\d+__$/.test(vv.trim())) return `class="${vv.trim()}"`;
+    const tok = getClassToken(vv);
+    return `class="${tok}"`;
+  });
+
+  // Replace style="..." similarly
+  packed = packed.replace(/\bstyle="([^"]*)"/g, (_m, v) => {
+    const vv = String(v ?? "");
+    if (!vv.trim()) return `style=""`;
+    if (/^__STYLE_\d+__$/.test(vv.trim())) return `style="${vv.trim()}"`;
+    const tok = getStyleToken(vv);
+    return `style="${tok}"`;
+  });
+
+  return { packed, classMap, styleMap };
+}
+
+function unpackAttrs(vueSource: string, classMap: Record<string, string>, styleMap: Record<string, string>): string {
+  let out = String(vueSource || "");
+  for (const [tok, val] of Object.entries(classMap || {})) {
+    out = out.split(tok).join(val);
+  }
+  for (const [tok, val] of Object.entries(styleMap || {})) {
+    out = out.split(tok).join(val);
+  }
+  return out;
+}
 
 function buildReadmeMarkdown(target: string) {
   const t = String(target || "nuxt").toLowerCase() === "vue" ? "vue(vite)" : "nuxt";
@@ -1446,11 +1525,22 @@ import diagnostics from "./generated/diagnostics.json";
       null,
       2
     ),
+    // Vite plugin-vue는 기본적으로 template의 asset url(src/href 등)을 import로 변환한다.
+    // 그런데 /assets/... 같은 절대경로는 public/ 정적 서빙이 의도인데도,
+    // 일부 설정/버전에서 import 시도로 이어져 빌드 에러가 날 수 있어 includeAbsolute를 false로 둔다.
     "vite.config.ts": `import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
-  plugins: [vue()]
+  plugins: [
+    vue({
+      template: {
+        transformAssetUrls: {
+          includeAbsolute: false
+        }
+      }
+    })
+  ]
 });
 `,
     "index.html": `<!doctype html>
@@ -1581,10 +1671,107 @@ app.mount("#app");
 @Injectable()
 export class CodegenService {
   private outDir: string;
+  private readonly logger = new Logger(CodegenService.name);
 
   constructor(private readonly mcp: McpClient) {
     this.outDir = path.join(process.cwd(), ".out");
     ensureDir(this.outDir);
+  }
+
+  private shouldRefineMixed(dsRoot: DSRoot): boolean {
+    const policy = String(dsRoot?.meta?.policy || "");
+    if (policy !== "MIXED") return false;
+    if (!process.env.OPENAI_API_KEY) {
+      this.logger.warn("[MIXED] GPT refine skipped: OPENAI_API_KEY is not set");
+      return false;
+    }
+    // default: enabled when API key is present; allow opt-out via env
+    if (String(process.env.A2UI_MIXED_GPT || "").trim() === "0") {
+      this.logger.warn("[MIXED] GPT refine skipped: A2UI_MIXED_GPT=0");
+      return false;
+    }
+    return true;
+  }
+
+  private async refineWithGpt4Mini(inputVueSfc: string, target: string): Promise<string> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) return inputVueSfc;
+
+    const model = String(process.env.OPENAI_MODEL || "gpt-4o-mini");
+    const { packed, classMap, styleMap } = packRepeatedAttrs(inputVueSfc);
+
+    const componentCheatSheet = [
+      "가능하면 BaseButton/BaseInput/BaseSelect/BaseTextarea/BaseCheckbox/BaseRadio/BaseSwitch/Typography 등 공통 컴포넌트로 구성",
+      "디자인(레이아웃/간격/정렬)을 바꾸지 말 것: class/style(placeholder 포함)를 삭제/변경 금지",
+      "wrapper div 최소화는 안전한 경우만: (속성/클래스 없는 단일-자식 wrapper) 위주로 제거",
+      "반복 구조(카드/리스트/메뉴/탭 등)면 v-for + 가상 데이터로 매핑",
+      "SFC 형태로 출력: <template> <script setup lang=\"ts\"> <style scoped> (style은 필요할 때만)",
+      "출력은 코드만(마크다운 금지)"
+    ].join("\n- ");
+
+    const userPrompt = [
+      `너는 Vue/Nuxt 프론트엔드 시니어 개발자다.`,
+      ``,
+      `작업: 아래 Vue SFC를 "프론트가 만든 페이지"처럼 정돈하되, UI/레이아웃은 유지하면서 중첩 div를 안전하게 최소화하고, 반복 구간은 v-for + 가상 데이터로 바인딩해라.`,
+      ``,
+      `중요 제약:`,
+      `- class/style 속성 값은 placeholder로 치환되어 있다. placeholder 문자열은 절대 변경하지 말고 그대로 유지해라.`,
+      `- placeholder 목록은 아래 CLASS_MAP/STYLE_MAP에 정의되어 있다. (코드 내 placeholder를 이동/재배치하는 것은 가능)`,
+      `- 새 placeholder를 만들지 말 것.`,
+      ``,
+      `공통 컴포넌트/작성 규칙:`,
+      `- ${componentCheatSheet}`,
+      ``,
+      `target: ${String(target || "nuxt")}`,
+      ``,
+      `CLASS_MAP(JSON):`,
+      JSON.stringify(classMap),
+      ``,
+      `STYLE_MAP(JSON):`,
+      JSON.stringify(styleMap),
+      ``,
+      `INPUT_VUE_SFC:`,
+      packed
+    ].join("\n");
+
+    try {
+      this.logger.log(`[MIXED] GPT refine start: model=${model} target=${String(target || "")} bytes=${Buffer.byteLength(packed, "utf8")}`);
+      const r = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          model,
+          temperature: 0.2,
+          max_tokens: 3500,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a senior frontend engineer. Return only the rewritten Vue SFC code. Do not include markdown fences or commentary."
+            },
+            { role: "user", content: userPrompt }
+          ]
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          timeout: 120000
+        }
+      );
+
+      const content = stripMarkdownCodeFences(r?.data?.choices?.[0]?.message?.content || "");
+      if (!content || !content.includes("<template")) {
+        this.logger.warn("[MIXED] GPT refine: empty/invalid response, fallback to original");
+        return inputVueSfc;
+      }
+      const out = unpackAttrs(content, classMap, styleMap);
+      this.logger.log(`[MIXED] GPT refine done: bytes=${Buffer.byteLength(out, "utf8")}`);
+      return out;
+    } catch (e: any) {
+      this.logger.warn(`[MIXED] GPT refine failed, fallback to original: ${e?.message || String(e)}`);
+      return inputVueSfc;
+    }
   }
 
   private collectImageNodeIds(node: DSNode, out: Set<string>) {
@@ -1708,6 +1895,46 @@ export class CodegenService {
     const t = String(target || "nuxt").toLowerCase();
   
     let files: Record<string, string> = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
+
+    // MIXED일 때만: ZIP 생성 직전에 GPT로 화면 컴포넌트(GeneratedScreen) 후처리
+    if (this.shouldRefineMixed(dsRoot)) {
+      if (t === "nuxt") {
+        const key = "components/GeneratedScreen.vue";
+        const original = String(files[key] || "");
+        if (original) {
+          this.logger.log("[MIXED] refining components/GeneratedScreen.vue (nuxt)");
+          files[key] = await this.refineWithGpt4Mini(original, t);
+        }
+      } else if (t === "vue") {
+        this.logger.log("[MIXED] refining src/components/GeneratedScreen.vue (vue)");
+        // Vue(Vite) 출력은 기존 App.vue 안에 화면이 인라인으로 들어가므로,
+        // MIXED일 때는 화면을 GeneratedScreen으로 분리해서 GPT가 안전하게 화면만 리팩토링하도록 한다.
+        const screenSfc = `<template>
+  ${screen}
+</template>
+`;
+        const refined = await this.refineWithGpt4Mini(screenSfc, t);
+
+        files["src/components/GeneratedScreen.vue"] = refined;
+        files["src/App.vue"] = `<template>
+  <div class="min-h-screen bg-white text-slate-900">
+    <main class="max-w-4xl mx-auto p-6">
+      <GeneratedScreen />
+      <details class="mt-10">
+        <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
+        <pre class="mt-3 text-xs whitespace-pre-wrap text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-4">{{ diagnostics }}</pre>
+      </details>
+    </main>
+  </div>
+</template>
+
+<script setup lang="ts">
+import GeneratedScreen from "./components/GeneratedScreen.vue";
+import diagnostics from "./generated/diagnostics.json";
+</script>
+`;
+      }
+    }
   
     files = {
       ...files,
