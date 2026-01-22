@@ -54,7 +54,8 @@ export class JobsController {
   generate(@Param("projectId") projectId: string, @Body() body: any) {
     //const policy = (body.policy || "TOLERANT") as any;
     const policy = (body.policy || "RAW") as any;
-    return this.jobs.enqueueGenerate(projectId, body.target || "nuxt", policy);
+    const componentSplit = body?.componentSplit;
+    return this.jobs.enqueueGenerate(projectId, body.target || "nuxt", policy, { componentSplit });
   }
 
   @Get("imports/latest")

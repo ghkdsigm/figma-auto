@@ -16,6 +16,15 @@ type Policy = "STRICT" | "TOLERANT" | "MIXED" | "RAW";
 
 const QUEUE_NAME = "a2ui";
 
+type GenerateOptions = {
+  componentSplit?: {
+    items?: Array<{
+      nodeId: string;
+      fileBase: string;
+    }>;
+  };
+};
+
 function getAbsXY(n: any): { x: number; y: number } {
   const x = Number(n?.x ?? n?.absoluteBoundingBox?.x ?? n?.absoluteTransform?.[0]?.[2] ?? 0);
   const y = Number(n?.y ?? n?.absoluteBoundingBox?.y ?? n?.absoluteTransform?.[1]?.[2] ?? 0);
@@ -351,7 +360,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         const zipPath = await this.codegen.generateZip(
           jobData.projectId,
           jobData.target,
-          latestMap.dsSpec as any
+          latestMap.dsSpec as any,
+          {
+            componentSplit: jobData.componentSplit
+          }
         );
 
         const art = await this.prisma.codeArtifact.create({
@@ -459,15 +471,17 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     return { ok: true, job: dbJob };
   }
 
-  async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "RAW") {
+  async enqueueGenerate(projectId: string, target = "nuxt", policy: Policy = "RAW", options: GenerateOptions = {}) {
     await this.ensureProjectExists(projectId);
     await this.ensureWorkerStarted();
 
+    const componentSplit = options?.componentSplit;
+
     const dbJob = await this.prisma.job.create({
-      data: { projectId, type: "GENERATE_CODE", status: "QUEUED", input: { target, policy } }
+      data: { projectId, type: "GENERATE_CODE", status: "QUEUED", input: { target, policy, componentSplit } }
     });
 
-    await this.queue!.add("GENERATE_CODE", { dbJobId: dbJob.id, projectId, target, policy });
+    await this.queue!.add("GENERATE_CODE", { dbJobId: dbJob.id, projectId, target, policy, componentSplit });
 
     return { ok: true, job: dbJob };
   }

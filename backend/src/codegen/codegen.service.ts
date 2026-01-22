@@ -625,6 +625,124 @@ function toKebab(s: string) {
   return s.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
+type GenerateZipOptions = {
+  componentSplit?: {
+    items?: Array<{
+      nodeId: string;
+      fileBase: string;
+    }>;
+  };
+};
+
+type NormalizedComponentSplitItem = {
+  nodeId: string;
+  fileBase: string;
+  componentName: string;
+  depth: number;
+};
+
+function normalizeFigmaNodeId(s: string): string {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  // If a full Figma URL was passed, extract node-id.
+  if (v.includes("figma.com")) {
+    try {
+      const u = new URL(v);
+      const rawNode = u.searchParams.get("node-id") || "";
+      if (rawNode) return rawNode.replace(/-/g, ":");
+    } catch {
+      // fall through
+    }
+  }
+  // Figma copy link commonly uses "123-456" while API/node ids are "123:456"
+  if (v.includes("-") && !v.includes(":")) return v.replace(/-/g, ":");
+  return v;
+}
+
+function pascalCaseName(s: string): string {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  // split on non-alnum boundaries; keep camelCase as a single chunk (then just upper-case first char)
+  const parts = v.replace(/[^A-Za-z0-9]+/g, " ").split(" ").filter(Boolean);
+  if (!parts.length) return "";
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
+}
+
+function isValidFileBase(s: string): boolean {
+  const v = String(s || "").trim();
+  // allow camelCase / PascalCase / kebab / snake (no spaces, no dots, no slashes)
+  return /^[A-Za-z][A-Za-z0-9_-]*$/.test(v);
+}
+
+function findDepthByFigmaNodeId(node: DSNode | undefined, figmaNodeId: string, depth = 0): number | undefined {
+  if (!node) return undefined;
+  const id = node?.ref?.figmaNodeId ? String(node.ref.figmaNodeId) : "";
+  if (id && id === figmaNodeId) return depth;
+  for (const c of node.children || []) {
+    const d = findDepthByFigmaNodeId(c, figmaNodeId, depth + 1);
+    if (d !== undefined) return d;
+  }
+  return undefined;
+}
+
+function replaceByFigmaNodeId(
+  node: DSNode,
+  figmaNodeId: string,
+  replacement: DSNode
+): { node: DSNode; extracted?: DSNode; found: boolean } {
+  const id = node?.ref?.figmaNodeId ? String(node.ref.figmaNodeId) : "";
+  if (id && id === figmaNodeId) {
+    return { node: replacement, extracted: node, found: true };
+  }
+
+  const kids = node.children || [];
+  if (!kids.length) return { node, found: false };
+
+  let extracted: DSNode | undefined;
+  let found = false;
+  const nextKids = kids.map((c) => {
+    if (found) return c;
+    const r = replaceByFigmaNodeId(c, figmaNodeId, replacement);
+    if (r.found) {
+      found = true;
+      extracted = r.extracted;
+    }
+    return r.node;
+  });
+
+  if (!found) return { node, found: false };
+
+  return {
+    node: {
+      ...node,
+      children: nextKids
+    },
+    extracted,
+    found: true
+  };
+}
+
+function collectUsedSplitComponents(node: DSNode | undefined, splitNames: Set<string>, out: Set<string>) {
+  if (!node) return;
+  if (node.kind === "component") {
+    const name = String(node.name || "");
+    if (splitNames.has(name)) out.add(name);
+  }
+  for (const c of node.children || []) collectUsedSplitComponents(c, splitNames, out);
+}
+
+function buildSplitComponentSfc(templateHtml: string, imports: Array<{ name: string; rel: string }>): string {
+  const importLines = imports.map((i) => `import ${i.name} from "${i.rel}";`);
+  const script =
+    importLines.length
+      ? `\n\n<script setup lang="ts">\n${importLines.join("\n")}\n</script>\n`
+      : "\n";
+
+  return `<template>
+  ${templateHtml}
+</template>${script}`;
+}
+
 function renderProps(props: Record<string, any> | undefined) {
   if (!props) return "";
   const out: string[] = [];
@@ -2022,18 +2140,149 @@ export class CodegenService {
     rewrite(dsRoot.tree);
   }
 
-  async generateZip(projectId: string, target: string, dsRoot: DSRoot): Promise<string> {
+  async generateZip(projectId: string, target: string, dsRootInput: DSRoot, options: GenerateZipOptions = {}): Promise<string> {
     const id = uuid().slice(0, 8);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `a2ui-${projectId}-${id}-`));
 
+    // Avoid mutating caller's object (JobsService stores dsSpec on artifact later).
+    const dsRoot = JSON.parse(JSON.stringify(dsRootInput || {})) as DSRoot;
+
     await this.resolveFigmaAssets(dsRoot, dir);
+
+    const rawItems = Array.isArray(options?.componentSplit?.items) ? options.componentSplit!.items! : [];
+    const normalizedItems: NormalizedComponentSplitItem[] = [];
+
+    if (rawItems.length) {
+      const reserved = new Set<string>(["GeneratedScreen", ...Object.keys(getComponentSources())]);
+      const seenNodeIds = new Set<string>();
+      const seenFileBase = new Set<string>();
+      const seenComponent = new Set<string>();
+
+      for (const it of rawItems) {
+        const nodeId = normalizeFigmaNodeId(String((it as any)?.nodeId || ""));
+        const fileBase = String((it as any)?.fileBase || "").trim();
+        if (!nodeId) throw new Error("componentSplit.items[].nodeId is required");
+        if (!fileBase) throw new Error("componentSplit.items[].fileBase is required");
+        if (!isValidFileBase(fileBase)) throw new Error(`Invalid componentSplit fileBase: ${fileBase}`);
+
+        const componentName = pascalCaseName(fileBase);
+        if (!componentName) throw new Error(`Invalid component name derived from fileBase: ${fileBase}`);
+        if (reserved.has(componentName)) throw new Error(`Reserved component name not allowed: ${componentName}`);
+
+        if (seenNodeIds.has(nodeId)) throw new Error(`Duplicate nodeId in componentSplit: ${nodeId}`);
+        if (seenFileBase.has(fileBase)) throw new Error(`Duplicate fileBase in componentSplit: ${fileBase}`);
+        if (seenComponent.has(componentName)) throw new Error(`Duplicate componentName in componentSplit: ${componentName}`);
+
+        const depth = findDepthByFigmaNodeId(dsRoot.tree, nodeId, 0);
+        if (depth === undefined) throw new Error(`componentSplit nodeId not found in ds tree: ${nodeId}`);
+
+        seenNodeIds.add(nodeId);
+        seenFileBase.add(fileBase);
+        seenComponent.add(componentName);
+
+        normalizedItems.push({ nodeId, fileBase, componentName, depth });
+      }
+
+      // process deepest nodes first so parent splits can include child components.
+      normalizedItems.sort((a, b) => b.depth - a.depth);
+    }
+
+    const splitComponents: Array<{ fileBase: string; componentName: string; node: DSNode }> = [];
+
+    if (normalizedItems.length) {
+      for (const it of normalizedItems) {
+        const replacement: DSNode = {
+          id: `split:${it.nodeId}`,
+          kind: "component",
+          name: it.componentName,
+          props: {},
+          classes: [],
+          children: []
+        };
+        const r = replaceByFigmaNodeId(dsRoot.tree, it.nodeId, replacement);
+        if (!r.found || !r.extracted) throw new Error(`componentSplit nodeId not found (race): ${it.nodeId}`);
+        dsRoot.tree = r.node;
+        splitComponents.push({ fileBase: it.fileBase, componentName: it.componentName, node: r.extracted });
+      }
+    }
 
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
 
     let files: Record<string, string> = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
 
-    if (this.shouldRefineMixed(dsRoot)) {
+    // Component splitting requires stable <script setup> imports; skip GPT refine to avoid accidental script changes.
+    const hasSplit = splitComponents.length > 0;
+
+    if (hasSplit) {
+      const splitNameSet = new Set(splitComponents.map((c) => c.componentName));
+      const isNuxt = t !== "vue";
+      const compDir = isNuxt ? "components" : "src/components";
+
+      // Write split component files first.
+      for (const c of splitComponents) {
+        const html = renderNode(c.node);
+        const used = new Set<string>();
+        collectUsedSplitComponents(c.node, splitNameSet, used);
+        used.delete(c.componentName);
+        const imports = Array.from(used)
+          .sort()
+          .map((name) => {
+            const other = splitComponents.find((x) => x.componentName === name);
+            const rel = other ? `./${other.fileBase}.vue` : `./${name}.vue`;
+            return { name, rel };
+          });
+        files[`${compDir}/${c.fileBase}.vue`] = buildSplitComponentSfc(html, imports);
+      }
+
+      // GeneratedScreen should import the top-level used split components (vue target needs it, nuxt doesn't but harmless).
+      const usedTop = new Set<string>();
+      collectUsedSplitComponents(dsRoot.tree, splitNameSet, usedTop);
+      const screenImports = Array.from(usedTop)
+        .sort()
+        .map((name) => {
+          const other = splitComponents.find((x) => x.componentName === name);
+          const rel = other ? `./${other.fileBase}.vue` : `./${name}.vue`;
+          return { name, rel };
+        });
+
+      const generatedScreenSfc = buildSplitComponentSfc(screen, screenImports);
+
+      if (isNuxt) {
+        files["components/GeneratedScreen.vue"] = generatedScreenSfc;
+      } else {
+        files["src/components/GeneratedScreen.vue"] = generatedScreenSfc;
+        const isRaw = dsRoot?.meta?.policy === "RAW";
+        files["src/App.vue"] = isRaw
+          ? `<template>
+  <GeneratedScreen />
+</template>
+
+<script setup lang="ts">
+import GeneratedScreen from "./components/GeneratedScreen.vue";
+</script>
+`
+          : `<template>
+  <div class="min-h-screen bg-white text-slate-900">
+    <main class="mx-auto flex justify-center">
+      <GeneratedScreen />
+      <details class="mt-10">
+        <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
+        <pre class="mt-3 text-xs whitespace-pre-wrap text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-4">{{ diagnostics }}</pre>
+      </details>
+    </main>
+  </div>
+</template>
+
+<script setup lang="ts">
+import GeneratedScreen from "./components/GeneratedScreen.vue";
+import diagnostics from "./generated/diagnostics.json";
+</script>
+`;
+      }
+    }
+
+    if (!hasSplit && this.shouldRefineMixed(dsRoot)) {
       if (t === "nuxt") {
         const key = "components/GeneratedScreen.vue";
         const original = String(files[key] || "");

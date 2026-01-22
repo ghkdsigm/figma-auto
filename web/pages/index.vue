@@ -306,6 +306,88 @@
                 </select>
               </div>
 
+              <div v-if="policy === 'MIXED'" class="rounded-2xl border border-slate-200/70 bg-white/60 p-5 shadow-sm">
+                <div class="flex items-center justify-between gap-3 mb-4">
+                  <h3 class="text-base font-semibold text-slate-900">MIXED 생성 방식</h3>
+                  <span class="text-xs text-slate-500">선택한 영역만 컴포넌트로 분리 가능</span>
+                </div>
+
+                <div class="space-y-4">
+                  <div class="flex flex-col sm:flex-row gap-4">
+                    <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="radio"
+                        value="ALL"
+                        v-model="mixedMode"
+                        class="h-4 w-4"
+                      />
+                      전체 가져오기
+                    </label>
+                    <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="radio"
+                        value="SPLIT"
+                        v-model="mixedMode"
+                        class="h-4 w-4"
+                      />
+                      컴포넌트 분할하기
+                    </label>
+                  </div>
+
+                  <div v-if="mixedMode === 'SPLIT'" class="space-y-3">
+                    <div
+                      v-for="(row, idx) in splitRows"
+                      :key="idx"
+                      class="grid gap-3 sm:grid-cols-[1fr_1fr_auto] items-end"
+                    >
+                      <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">노드 ID (또는 URL)</label>
+                        <input
+                          v-model="row.nodeInput"
+                          class="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-200/50"
+                          placeholder="https://www.figma.com/design/... ?node-id=... (또는 123:456)"
+                          @blur="normalizeSplitNodeInput(idx)"
+                        />
+                      </div>
+
+                      <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">영역명 (파일명)</label>
+                        <input
+                          v-model="row.fileBase"
+                          class="w-full rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-slate-900 placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-200/50"
+                          placeholder="basedTabMenu"
+                        />
+                      </div>
+
+                      <div class="flex gap-2">
+                        <button
+                          type="button"
+                          class="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white"
+                          @click="addSplitRow"
+                        >
+                          추가
+                        </button>
+                        <button
+                          type="button"
+                          class="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white disabled:opacity-60"
+                          :disabled="splitRows.length <= 1"
+                          @click="removeSplitRow(idx)"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    </div>
+
+                    <p class="text-xs text-slate-500">
+                      영역명은
+                      <span class="font-mono">Nuxt: components/영역명.vue</span>,
+                      <span class="font-mono">Vue: src/components/영역명.vue</span>
+                      로 생성되며, 해당 노드 subtree가 그 파일로 분리됩니다.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div class="grid gap-3 sm:grid-cols-2">
                 <LoadingButton
                   className="w-full cursor-pointer rounded-2xl bg-slate-900 px-4 py-3 text-white font-medium shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
@@ -419,6 +501,10 @@ const artifacts = ref<any[]>([]);
 
 const policy = ref<"RAW" | "TOLERANT" | "MIXED" | "STRICT">("RAW");
 
+const mixedMode = ref<"ALL" | "SPLIT">("ALL");
+type SplitRow = { nodeInput: string; fileBase: string };
+const splitRows = ref<SplitRow[]>([{ nodeInput: "", fileBase: "" }]);
+
 const jsonFileEl = ref<HTMLInputElement | null>(null);
 const pickedJson = ref<File | null>(null);
 
@@ -467,7 +553,7 @@ function parseFigmaInput(input: string) {
     const key = designIdx >= 0 ? parts[designIdx + 1] : fileIdx >= 0 ? parts[fileIdx + 1] : "";
 
     const rawNode = u.searchParams.get("node-id") || "";
-    const nodeId = rawNode ? rawNode.replace("-", ":") : "";
+    const nodeId = rawNode ? rawNode.replace(/-/g, ":") : "";
 
     return { fileKey: key || "", nodeId };
   } catch {
@@ -504,7 +590,31 @@ watch(policy, () => {
   if (project.value) {
     refreshLatest();
   }
+  if (policy.value !== "MIXED") {
+    mixedMode.value = "ALL";
+    splitRows.value = [{ nodeInput: "", fileBase: "" }];
+  }
 });
+
+function normalizeSplitNodeInput(idx: number) {
+  const row = splitRows.value[idx];
+  if (!row) return;
+  const raw = String(row.nodeInput || "").trim();
+  if (!raw) return;
+  const parsed = parseFigmaInput(raw);
+  const nodeId = (parsed.nodeId || "").trim();
+  if (nodeId) row.nodeInput = nodeId;
+  else row.nodeInput = raw.includes("-") && !raw.includes(":") ? raw.replace(/-/g, ":") : raw;
+}
+
+function addSplitRow() {
+  splitRows.value.push({ nodeInput: "", fileBase: "" });
+}
+
+function removeSplitRow(idx: number) {
+  if (splitRows.value.length <= 1) return;
+  splitRows.value.splice(idx, 1);
+}
 
 async function createProject() {
   const __key = "createProject";
@@ -633,10 +743,28 @@ async function generate(target: "nuxt" | "vue") {
     // 사용자가 새로고침을 여러 번 눌러야 하는 문제가 있었어요.
     const beforeIds = new Set((artifacts.value || []).map((a: any) => String(a?.id || "")));
 
+    const body: any = { target, policy: policy.value };
+
+    if (policy.value === "MIXED" && mixedMode.value === "SPLIT") {
+      const items = splitRows.value
+        .map((r) => {
+          const raw = String(r.nodeInput || "").trim();
+          const parsed = parseFigmaInput(raw);
+          const nodeId = (parsed.nodeId || raw).trim().replace(/-/g, ":");
+          const fileBase = String(r.fileBase || "").trim();
+          return { nodeId, fileBase };
+        })
+        .filter((r) => r.nodeId && r.fileBase && !r.nodeId.includes("figma.com"));
+
+      if (items.length) {
+        body.componentSplit = { items };
+      }
+    }
+
     await $fetch(`${apiBase}/projects/${project.value.id}/generate`, {
       method: "POST",
       headers: authHeaders.value,
-      body: { target, policy: policy.value },
+      body,
     });
 
     // artifacts가 새로 생길 때까지 잠깐 폴링 (최대 60초)
