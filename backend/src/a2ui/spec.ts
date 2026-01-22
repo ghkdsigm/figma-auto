@@ -93,6 +93,7 @@ export type A2UIInput = A2UIBase & {
 export type A2UIImage = A2UIBase & {
   type: "image";
   srcRef?: { figmaImageRef?: string };
+  asset?: { format?: "svg" | "png" | "jpg" };
 };
 
 export type A2UINode = A2UIFrame | A2UIText | A2UIButton | A2UIInput | A2UIImage;

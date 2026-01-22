@@ -252,6 +252,59 @@ function isButtonText(txt: string) {
   return false;
 }
 
+function inferAssetFormatFromName(name: any): "svg" | "png" | "jpg" | undefined {
+  const nm = String(name ?? "").trim().toLowerCase();
+  if (!nm) return undefined;
+  if (nm.endsWith(".svg")) return "svg";
+  if (nm.endsWith(".png")) return "png";
+  if (nm.endsWith(".jpg") || nm.endsWith(".jpeg")) return "jpg";
+  return undefined;
+}
+
+function isVectorishFigmaType(t: any): boolean {
+  const type = String(t ?? "");
+  return (
+    type === "VECTOR" ||
+    type === "BOOLEAN_OPERATION" ||
+    type === "STAR" ||
+    type === "ELLIPSE" ||
+    type === "LINE" ||
+    type === "POLYGON"
+  );
+}
+
+function subtreeIsVectorish(n: any): boolean {
+  if (!n) return false;
+  const t = String(n?.type ?? "");
+  if (t === "TEXT") return false;
+  const children = Array.isArray(n?.children) ? n.children : [];
+  if (!children.length) return isVectorishFigmaType(t);
+  // Containers: all descendants must be vector-ish (no text, no nested frames with UI)
+  return children.every(subtreeIsVectorish);
+}
+
+function looksLikeIconContainer(n: any): boolean {
+  const t = String(n?.type ?? "");
+  if (!["GROUP", "FRAME", "COMPONENT", "INSTANCE"].includes(t)) return false;
+  const children = Array.isArray(n?.children) ? n.children : [];
+  if (!children.length) return false;
+  if (!subtreeIsVectorish(n)) return false;
+
+  const w =
+    n?.width !== undefined ? Number(n.width) :
+    n?.absoluteBoundingBox?.width !== undefined ? Number(n.absoluteBoundingBox.width) :
+    undefined;
+  const h =
+    n?.height !== undefined ? Number(n.height) :
+    n?.absoluteBoundingBox?.height !== undefined ? Number(n.absoluteBoundingBox.height) :
+    undefined;
+
+  // Keep this conservative: only small vector-only containers become a single SVG asset.
+  if (Number.isFinite(w) && w! > 256) return false;
+  if (Number.isFinite(h) && h! > 256) return false;
+  return true;
+}
+
 function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[]): A2UINode | null {
   if (!n) return null;
 
@@ -277,7 +330,18 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
     return {
       ...base,
       type: "image",
-      srcRef: imgPaint?.imageRef ? { figmaImageRef: String(imgPaint.imageRef) } : undefined
+      srcRef: imgPaint?.imageRef ? { figmaImageRef: String(imgPaint.imageRef) } : undefined,
+      asset: { format: inferAssetFormatFromName(n?.name) ?? "png" }
+    };
+  }
+
+  // Many icons are groups/frames composed of multiple vector primitives (incl. boolean ops).
+  // Export them as a single SVG asset to preserve holes/masks and avoid layout drift.
+  if (looksLikeIconContainer(n)) {
+    return {
+      ...base,
+      type: "image",
+      asset: { format: "svg" }
     };
   }
 
@@ -305,12 +369,13 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
     return { ...base, type: "text", text: txt };
   }
 
-  if (type === "VECTOR" || type === "STAR" || type === "ELLIPSE") {
+  if (isVectorishFigmaType(type)) {
     // Export JSON Pro로 들어온 VECTOR 계열은 실제로 아이콘/패스가 대부분이며,
     // RAW 정책에서도 그대로 보이도록 렌더링 이미지로 취급한다.
     return {
       ...base,
-      type: "image"
+      type: "image",
+      asset: { format: "svg" }
     };
   }
 
@@ -322,7 +387,8 @@ function fromNode(n: FigmaNode, namePath: string[], diagnostics: A2UIDiagnostic[
       return {
         ...base,
         type: "image",
-        srcRef: n.fills?.[0]?.imageRef ? { figmaImageRef: String(n.fills[0].imageRef) } : undefined
+        srcRef: n.fills?.[0]?.imageRef ? { figmaImageRef: String(n.fills[0].imageRef) } : undefined,
+        asset: { format: inferAssetFormatFromName(n?.name) ?? "png" }
       };
     }
     // Many UI primitives (checkbox borders, select outlines, dividers) are stroke-only rectangles.

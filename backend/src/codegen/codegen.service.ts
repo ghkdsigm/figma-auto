@@ -12,10 +12,102 @@ import { McpClient } from "../mcp/mcp.client";
 function stripMarkdownCodeFences(s: string): string {
   const t = String(s || "").trim();
   if (!t) return "";
-  // Remove leading/trailing ``` fences (optionally with language tags)
   const fenced = t.match(/^```[\w-]*\s*\n([\s\S]*?)\n```$/);
   if (fenced) return String(fenced[1] || "").trim();
   return t;
+}
+
+function extractTemplateBlocks(sfc: string): Array<{ full: string; start: number; end: number }> {
+  const src = String(sfc || "");
+  const blocks: Array<{ full: string; start: number; end: number }> = [];
+  const re = /<template\b[\s\S]*?<\/template>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    blocks.push({ full: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  return blocks;
+}
+
+function replaceInTemplateBlocks(sfc: string, replacer: (templateBlockFull: string) => string): string {
+  const src = String(sfc || "");
+  const blocks = extractTemplateBlocks(src);
+  if (!blocks.length) return src;
+
+  let out = "";
+  let last = 0;
+  for (const b of blocks) {
+    out += src.slice(last, b.start);
+    out += replacer(b.full);
+    last = b.end;
+  }
+  out += src.slice(last);
+  return out;
+}
+
+function collectTokens(src: string, re: RegExp): Map<string, number> {
+  const m = new Map<string, number>();
+  const s = String(src || "");
+  const matches = s.match(re) || [];
+  for (const t of matches) m.set(t, (m.get(t) || 0) + 1);
+  return m;
+}
+
+function collectTagSequenceFromTemplateBlock(templateBlockFull: string): string[] {
+  const s = String(templateBlockFull || "");
+  const tags: string[] = [];
+  const re = /<\/?([A-Za-z][\w:-]*)\b/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) tags.push(m[1]);
+  return tags;
+}
+
+function validateRefinedPackedSfcOrNull(
+  originalPackedSfc: string,
+  refinedPackedSfc: string,
+  classMap: Record<string, string>,
+  styleMap: Record<string, string>
+): string | null {
+  const orig = String(originalPackedSfc || "");
+  const ref = String(refinedPackedSfc || "");
+
+  const origBlocks = extractTemplateBlocks(orig);
+  const refBlocks = extractTemplateBlocks(ref);
+  if (origBlocks.length !== refBlocks.length) return null;
+
+  const allowed = new Set<string>([...Object.keys(classMap || {}), ...Object.keys(styleMap || {})]);
+
+  const clsRe = /__CLS_\d+__/g;
+  const styRe = /__STYLE_\d+__/g;
+
+  const origCls = collectTokens(orig, clsRe);
+  const refCls = collectTokens(ref, clsRe);
+  const origSty = collectTokens(orig, styRe);
+  const refSty = collectTokens(ref, styRe);
+
+  const sameMap = (a: Map<string, number>, b: Map<string, number>) => {
+    if (a.size !== b.size) return false;
+    for (const [k, v] of a.entries()) if (b.get(k) !== v) return false;
+    return true;
+  };
+
+  if (!sameMap(origCls, refCls)) return null;
+  if (!sameMap(origSty, refSty)) return null;
+
+  const refAllTokens = [...(ref.match(clsRe) || []), ...(ref.match(styRe) || [])];
+  for (const t of refAllTokens) {
+    if (!allowed.has(t)) return null;
+  }
+
+  for (let i = 0; i < origBlocks.length; i += 1) {
+    const a = collectTagSequenceFromTemplateBlock(origBlocks[i].full);
+    const b = collectTagSequenceFromTemplateBlock(refBlocks[i].full);
+    if (a.length !== b.length) return null;
+    for (let j = 0; j < a.length; j += 1) {
+      if (a[j] !== b[j]) return null;
+    }
+  }
+
+  return ref;
 }
 
 function packRepeatedAttrs(vueSource: string): {
@@ -55,37 +147,44 @@ function packRepeatedAttrs(vueSource: string): {
     return tok;
   };
 
-  // Replace class="...": keep as opaque token to reduce repetition
-  let packed = src.replace(/\bclass="([^"]*)"/g, (_m, v) => {
-    const vv = String(v ?? "");
-    if (!vv.trim()) return `class=""`;
-    // If it's already a placeholder, keep it.
-    if (/^__CLS_\d+__$/.test(vv.trim())) return `class="${vv.trim()}"`;
-    const tok = getClassToken(vv);
-    return `class="${tok}"`;
-  });
+  const packed = replaceInTemplateBlocks(src, (tpl) => {
+    let t = String(tpl || "");
 
-  // Replace style="..." similarly
-  packed = packed.replace(/\bstyle="([^"]*)"/g, (_m, v) => {
-    const vv = String(v ?? "");
-    if (!vv.trim()) return `style=""`;
-    if (/^__STYLE_\d+__$/.test(vv.trim())) return `style="${vv.trim()}"`;
-    const tok = getStyleToken(vv);
-    return `style="${tok}"`;
+    t = t.replace(/\bclass="([^"]*)"/g, (_m, v) => {
+      const vv = String(v ?? "");
+      if (!vv.trim()) return `class=""`;
+      if (/^__CLS_\d+__$/.test(vv.trim())) return `class="${vv.trim()}"`;
+      const tok = getClassToken(vv);
+      return `class="${tok}"`;
+    });
+
+    t = t.replace(/\bstyle="([^"]*)"/g, (_m, v) => {
+      const vv = String(v ?? "");
+      if (!vv.trim()) return `style=""`;
+      if (/^__STYLE_\d+__$/.test(vv.trim())) return `style="${vv.trim()}"`;
+      const tok = getStyleToken(vv);
+      return `style="${tok}"`;
+    });
+
+    return t;
   });
 
   return { packed, classMap, styleMap };
 }
 
 function unpackAttrs(vueSource: string, classMap: Record<string, string>, styleMap: Record<string, string>): string {
-  let out = String(vueSource || "");
-  for (const [tok, val] of Object.entries(classMap || {})) {
-    out = out.split(tok).join(val);
-  }
-  for (const [tok, val] of Object.entries(styleMap || {})) {
-    out = out.split(tok).join(val);
-  }
-  return out;
+  const src = String(vueSource || "");
+
+  return replaceInTemplateBlocks(src, (tpl) => {
+    let out = String(tpl || "");
+    for (const [tok, val] of Object.entries(classMap || {})) {
+      out = out.split(tok).join(val);
+    }
+    for (const [tok, val] of Object.entries(styleMap || {})) {
+      out = out.split(tok).join(val);
+    }
+    return out;
+  });
 }
 
 function buildReadmeMarkdown(target: string) {
@@ -139,7 +238,6 @@ E. 빌드/런 기준으로 깨지는 부분 수정
 }
 
 function buildReadmeRefactorMarkdown() {
-  // Cursor/LLM에게 반복 설명을 줄이기 위한 최소 지침 (의도적으로 짧게 유지)
   return `UI 변경 금지
 // 가능하면 components/의 공통 컴포넌트로 치환(BaseButton/BaseInput/BaseSelect/BaseCheckbox/BaseRadio/BaseSwitch 등)
 // 확신 없으면 div 유지
@@ -207,7 +305,6 @@ function safeExample(v: any): string | number | boolean | null | undefined {
   if (v === null) return null;
   if (typeof v === "string") return v.length > 120 ? v.slice(0, 117) + "..." : v;
   if (typeof v === "number" || typeof v === "boolean") return v;
-  // object/array는 예시로 넣으면 너무 커지는 경우가 많아서 스킵
   return undefined;
 }
 
@@ -224,8 +321,7 @@ function loadDesignSystemForManifest(): {
   const pathTried: string[] = [];
   const candidates = [
     path.join(process.cwd(), "design-system", "design-system.json"),
-    // dist 실행 시 cwd가 달라질 수 있어 __dirname 기반도 시도
-    path.resolve(__dirname, "../../design-system/design-system.json"),
+    path.resolve(__dirname, "../../design-system/design-system.json")
   ];
 
   for (const p of candidates) {
@@ -241,7 +337,10 @@ function loadDesignSystemForManifest(): {
 }
 
 function collectComponentPropsSummary(dsRoot: DSRoot): Record<string, Record<string, ManifestPropSummary>> {
-  const out: Record<string, Record<string, { typeSet: Set<string>; examples: Array<string | number | boolean | null> }>> = {};
+  const out: Record<
+    string,
+    Record<string, { typeSet: Set<string>; examples: Array<string | number | boolean | null> }>
+  > = {};
 
   const visit = (n: DSNode | undefined) => {
     if (!n) return;
@@ -267,7 +366,7 @@ function collectComponentPropsSummary(dsRoot: DSRoot): Record<string, Record<str
     for (const [k, v] of Object.entries(props)) {
       finalized[comp][k] = {
         types: Array.from(v.typeSet).sort(),
-        ...(v.examples.length ? { examples: v.examples } : {}),
+        ...(v.examples.length ? { examples: v.examples } : {})
       };
     }
   }
@@ -275,7 +374,6 @@ function collectComponentPropsSummary(dsRoot: DSRoot): Record<string, Record<str
 }
 
 function parseDefinePropsSpec(vueSource: string): Record<string, ManifestPropSummary> {
-  // 매우 단순 파서: defineProps<{ ... }>() 형태만 지원한다 (현재 codegen 템플릿에 충분)
   const m = vueSource.match(/defineProps\s*<\s*\{([\s\S]*?)\}\s*>\s*\(\s*\)\s*;?/);
   if (!m) return {};
   const body = m[1] || "";
@@ -291,7 +389,6 @@ function parseDefinePropsSpec(vueSource: string): Record<string, ManifestPropSum
     if (!mm) continue;
     const key = mm[1];
     const type = mm[3].trim();
-    // optional 여부는 manifest에 굳이 넣지 않고 타입 문자열로만 요약
     out[key] = { types: [type] };
   }
 
@@ -324,7 +421,7 @@ function mergePropsSummary(
       const typeSet = new Set([...(prev.types || []), ...(v.types || [])]);
       const ex = [
         ...((prev.examples || []) as Array<string | number | boolean | null>),
-        ...((v.examples || []) as Array<string | number | boolean | null>),
+        ...((v.examples || []) as Array<string | number | boolean | null>)
       ].slice(0, 3);
       out[comp][k] = { types: Array.from(typeSet).sort(), ...(ex.length ? { examples: ex } : {}) };
     }
@@ -345,8 +442,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
     occurrences: number;
   };
 
-  const keyOf = (tag: string, classes: string[]) =>
-    `${tag}::${classes.filter(Boolean).slice().sort().join(" ")}`;
+  const keyOf = (tag: string, classes: string[]) => `${tag}::${classes.filter(Boolean).slice().sort().join(" ")}`;
 
   const counts = new Map<string, Hit>();
 
@@ -364,7 +460,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
           confidence: "high",
           reason: "button 태그 + bg/px(py)/rounded 조합(버튼 스타일 가능성 높음)",
           exampleTag: tag,
-          exampleClasses: classes,
+          exampleClasses: classes
         };
       }
       if (hasRounded && (hasBg || hasBorder)) {
@@ -373,7 +469,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
           confidence: "medium",
           reason: "button 태그 + rounded + (bg 또는 border) 조합(버튼 후보)",
           exampleTag: tag,
-          exampleClasses: classes,
+          exampleClasses: classes
         };
       }
     }
@@ -385,7 +481,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
           confidence: "high",
           reason: "input 태그 + border/rounded/focus:ring 조합(인풋 스타일 가능성 높음)",
           exampleTag: tag,
-          exampleClasses: classes,
+          exampleClasses: classes
         };
       }
       if (hasRounded && hasBorder) {
@@ -394,7 +490,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
           confidence: "medium",
           reason: "input 태그 + border/rounded 조합(인풋 후보)",
           exampleTag: tag,
-          exampleClasses: classes,
+          exampleClasses: classes
         };
       }
     }
@@ -411,7 +507,6 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
   const looksLikeInput = (n: DSNode) => n.kind === "element" && n.name === "input";
 
   const classifyContainerAsFormField = (n: DSNode): Omit<Hit, "occurrences"> | null => {
-    // 매우 보수적으로: 같은 컨테이너(children)에 "텍스트 라벨" + "input"이 같이 있으면 FormField 후보로 본다.
     if (!n || n.kind !== "element") return null;
     const tag = String(n.name || "");
     if (tag !== "div" && tag !== "form" && tag !== "section") return null;
@@ -427,7 +522,6 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
     const hasFlexCol = classes.includes("flex") && classes.some((c) => c === "flex-col" || c.includes("flex-col"));
     const hasGap = classes.some((c) => c.startsWith("gap-") || c.startsWith("gap["));
 
-    // confidence는 레이아웃 힌트가 있으면 high, 아니면 medium
     const confidence: "high" | "medium" = hasFlexCol || hasGap ? "high" : "medium";
 
     return {
@@ -438,7 +532,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
           ? "컨테이너(div) 내부에 라벨 텍스트 1개 + input 1개가 있고, flex-col/gap 힌트가 있어 FormField 구조 가능성 높음"
           : "컨테이너(div) 내부에 라벨 텍스트 1개 + input 1개가 있어 FormField 후보",
       exampleTag: tag,
-      exampleClasses: classes,
+      exampleClasses: classes
     };
   };
 
@@ -455,7 +549,6 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
       }
     }
 
-    // FormField 후보는 컨테이너 패턴에서 추출
     if (n.kind === "element") {
       const hit = classifyContainerAsFormField(n);
       if (hit) {
@@ -474,9 +567,7 @@ function collectRawCandidatePatterns(dsRoot: DSRoot): Manifest["rawCandidatePatt
   const all = Array.from(counts.values());
   const score = (h: Hit) => (h.confidence === "high" ? 1_000_000 : 0) + h.occurrences;
 
-  return all
-    .sort((a, b) => score(b) - score(a))
-    .slice(0, 8);
+  return all.sort((a, b) => score(b) - score(a)).slice(0, 8);
 }
 
 function buildManifestJson(dsRoot: DSRoot, target: string): string {
@@ -497,7 +588,7 @@ function buildManifestJson(dsRoot: DSRoot, target: string): string {
       code: d.code,
       message: d.message,
       nodeId: d.nodeId,
-      namePath: Array.isArray(d?.ref?.namePath) ? d.ref!.namePath!.join("/") : undefined,
+      namePath: Array.isArray(d?.ref?.namePath) ? d.ref!.namePath!.join("/") : undefined
     }));
 
   const manifest: Manifest = {
@@ -505,9 +596,7 @@ function buildManifestJson(dsRoot: DSRoot, target: string): string {
     generatedAt: new Date().toISOString(),
     policy: String(dsRoot?.meta?.policy || "RAW"),
     target: String(target || "nuxt"),
-    ...(ds
-      ? { designSystem: { name: ds?.name, tokensVersion: ds?.tokensVersion, pathTried } }
-      : { designSystem: { pathTried } }),
+    ...(ds ? { designSystem: { name: ds?.name, tokensVersion: ds?.tokensVersion, pathTried } } : { designSystem: { pathTried } }),
     commonComponents,
     generatedComponents,
     componentPropsSummary,
@@ -515,15 +604,14 @@ function buildManifestJson(dsRoot: DSRoot, target: string): string {
       uiChangeForbidden: true,
       preferComponents: commonComponents,
       fallbackRule: "치환 확신이 없거나 UI가 바뀔 위험이 있으면 기존 div/구조 유지(치환 강행 금지)",
-      note: "RAW 출력물은 '날코딩'이므로, components/의 공통 컴포넌트를 최대한 임포트/치환하되 UI 변경은 금지한다.",
+      note: "RAW 출력물은 '날코딩'이므로, components/의 공통 컴포넌트를 최대한 임포트/치환하되 UI 변경은 금지한다."
     },
     ...(dsRoot?.meta?.policy === "RAW" ? { rawCandidatePatterns: collectRawCandidatePatterns(dsRoot) } : {}),
-    ...(diagnosticsSample.length ? { hints: { diagnosticsSample } } : {}),
+    ...(diagnosticsSample.length ? { hints: { diagnosticsSample } } : {})
   };
 
   return JSON.stringify(manifest, null, 2);
 }
-
 
 function escapeAttr(s: string) {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -561,12 +649,7 @@ function renderNode(n: DSNode): string {
   const props = renderProps(n.props);
   const cls = renderClasses(n.classes);
 
-  if (
-    n.kind === "element" &&
-    n.props &&
-    typeof (n.props as any).text === "string" &&
-    (!n.children || !n.children.length)
-  ) {
+  if (n.kind === "element" && n.props && typeof (n.props as any).text === "string" && (!n.children || !n.children.length)) {
     const text = String((n.props as any).text);
     const restProps = { ...(n.props || {}) } as any;
     delete restProps.text;
@@ -1362,7 +1445,7 @@ function nuxtFiles(appHtml: string, dsRoot: DSRoot): Record<string, string> {
 `
     : `<template>
   <div class="min-h-screen bg-white text-slate-900">
-    <main class="max-w-4xl mx-auto p-6">
+    <main class="mx-auto flex justify-center">
       <GeneratedScreen />
       <details class="mt-10">
         <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
@@ -1484,7 +1567,7 @@ function viteFiles(appHtml: string, dsRoot: DSRoot): Record<string, string> {
 `
     : `<template>
   <div class="min-h-screen bg-white text-slate-900">
-    <main class="max-w-4xl mx-auto p-6">
+    <main class="mx-auto flex justify-center">
       ${appHtml}
       <details class="mt-10">
         <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
@@ -1525,9 +1608,6 @@ import diagnostics from "./generated/diagnostics.json";
       null,
       2
     ),
-    // Vite plugin-vue는 기본적으로 template의 asset url(src/href 등)을 import로 변환한다.
-    // 그런데 /assets/... 같은 절대경로는 public/ 정적 서빙이 의도인데도,
-    // 일부 설정/버전에서 import 시도로 이어져 빌드 에러가 날 수 있어 includeAbsolute를 false로 둔다.
     "vite.config.ts": `import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 
@@ -1685,7 +1765,6 @@ export class CodegenService {
       this.logger.warn("[MIXED] GPT refine skipped: OPENAI_API_KEY is not set");
       return false;
     }
-    // default: enabled when API key is present; allow opt-out via env
     if (String(process.env.A2UI_MIXED_GPT || "").trim() === "0") {
       this.logger.warn("[MIXED] GPT refine skipped: A2UI_MIXED_GPT=0");
       return false;
@@ -1700,27 +1779,23 @@ export class CodegenService {
     const model = String(process.env.OPENAI_MODEL || "gpt-4o-mini");
     const { packed, classMap, styleMap } = packRepeatedAttrs(inputVueSfc);
 
-    const componentCheatSheet = [
-      "가능하면 BaseButton/BaseInput/BaseSelect/BaseTextarea/BaseCheckbox/BaseRadio/BaseSwitch/Typography 등 공통 컴포넌트로 구성",
-      "디자인(레이아웃/간격/정렬)을 바꾸지 말 것: class/style(placeholder 포함)를 삭제/변경 금지",
-      "wrapper div 최소화는 안전한 경우만: (속성/클래스 없는 단일-자식 wrapper) 위주로 제거",
-      "반복 구조(카드/리스트/메뉴/탭 등)면 v-for + 가상 데이터로 매핑",
-      "SFC 형태로 출력: <template> <script setup lang=\"ts\"> <style scoped> (style은 필요할 때만)",
-      "출력은 코드만(마크다운 금지)"
-    ].join("\n- ");
-
     const userPrompt = [
       `너는 Vue/Nuxt 프론트엔드 시니어 개발자다.`,
       ``,
-      `작업: 아래 Vue SFC를 "프론트가 만든 페이지"처럼 정돈하되, UI/레이아웃은 유지하면서 중첩 div를 안전하게 최소화하고, 반복 구간은 v-for + 가상 데이터로 바인딩해라.`,
+      `작업: 아래 Vue SFC를 "포맷팅(들여쓰기/줄바꿈/정렬)"만 정리해라.`,
+      `중요: UI/레이아웃이 1px라도 바뀌면 안 된다.`,
       ``,
-      `중요 제약:`,
-      `- class/style 속성 값은 placeholder로 치환되어 있다. placeholder 문자열은 절대 변경하지 말고 그대로 유지해라.`,
-      `- placeholder 목록은 아래 CLASS_MAP/STYLE_MAP에 정의되어 있다. (코드 내 placeholder를 이동/재배치하는 것은 가능)`,
-      `- 새 placeholder를 만들지 말 것.`,
+      `절대 금지(매우 중요):`,
+      `- <template> 안에서 태그 추가/삭제/이동/병합/분리/재배치 금지`,
+      `- attribute 추가/삭제/이동/이름 변경/순서 변경 금지`,
+      `- class/style 값 변경 금지 (토큰 포함)`,
+      `- 토큰(__CLS_#__ / __STYLE_#__ )은 "같은 요소"에 그대로 유지(다른 요소로 이동 금지)`,
+      `- 컴포넌트 치환 금지(BaseButton/BaseInput 등으로 교체 금지)`,
+      `- v-for, v-if 구조화/추출 금지`,
+      `- wrapper 제거/최소화 금지`,
+      `- script/setup 추가/삭제/변경 금지`,
       ``,
-      `공통 컴포넌트/작성 규칙:`,
-      `- ${componentCheatSheet}`,
+      `허용되는 변경: 공백, 줄바꿈, 들여쓰기만.`,
       ``,
       `target: ${String(target || "nuxt")}`,
       ``,
@@ -1735,18 +1810,20 @@ export class CodegenService {
     ].join("\n");
 
     try {
-      this.logger.log(`[MIXED] GPT refine start: model=${model} target=${String(target || "")} bytes=${Buffer.byteLength(packed, "utf8")}`);
+      this.logger.log(
+        `[MIXED] GPT refine start: model=${model} target=${String(target || "")} bytes=${Buffer.byteLength(packed, "utf8")}`
+      );
       const r = await axios.post(
         "https://api.openai.com/v1/chat/completions",
         {
           model,
-          temperature: 0.2,
+          temperature: 0.0,
           max_tokens: 3500,
           messages: [
             {
               role: "system",
               content:
-                "You are a senior frontend engineer. Return only the rewritten Vue SFC code. Do not include markdown fences or commentary."
+                "Return only the Vue SFC code. Do not include markdown fences or commentary. Preserve template structure exactly; only whitespace changes are allowed."
             },
             { role: "user", content: userPrompt }
           ]
@@ -1765,7 +1842,14 @@ export class CodegenService {
         this.logger.warn("[MIXED] GPT refine: empty/invalid response, fallback to original");
         return inputVueSfc;
       }
-      const out = unpackAttrs(content, classMap, styleMap);
+
+      const validatedPacked = validateRefinedPackedSfcOrNull(packed, content, classMap, styleMap);
+      if (!validatedPacked) {
+        this.logger.warn("[MIXED] GPT refine: validation failed (structure/token mismatch), fallback to original");
+        return inputVueSfc;
+      }
+
+      const out = unpackAttrs(validatedPacked, classMap, styleMap);
       this.logger.log(`[MIXED] GPT refine done: bytes=${Buffer.byteLength(out, "utf8")}`);
       return out;
     } catch (e: any) {
@@ -1774,42 +1858,87 @@ export class CodegenService {
     }
   }
 
-  private collectImageNodeIds(node: DSNode, out: Set<string>) {
+  private readonly supportedAssetFormats = new Set(["png", "jpg", "svg"]);
+
+  private parseFigmaPlaceholder(src: string): { format?: "png" | "jpg" | "svg"; nodeId?: string } | null {
+    const s = String(src || "");
+    // New format: __FIGMA_NODE__|<fmt>|<nodeId>
+    if (s.startsWith("__FIGMA_NODE__|")) {
+      const parts = s.split("|");
+      // ["__FIGMA_NODE__", "<fmt>", "<nodeId...>"]
+      const fmt = String(parts[1] || "").toLowerCase();
+      const nodeId = parts.slice(2).join("|");
+      const format = this.supportedAssetFormats.has(fmt) ? (fmt as any) : undefined;
+      return { format, nodeId: nodeId || undefined };
+    }
+    // Legacy format: __FIGMA_NODE__:<nodeId> (nodeId can contain ":")
+    if (s.startsWith("__FIGMA_NODE__:")) {
+      const nodeId = s.slice("__FIGMA_NODE__:".length);
+      return { nodeId: nodeId || undefined };
+    }
+    return null;
+  }
+
+  private inferAssetFormatFromImgNode(node: DSNode): "png" | "jpg" | "svg" {
+    const src = String((node.props as any)?.src || "");
+    const parsed = this.parseFigmaPlaceholder(src);
+    if (parsed?.format) return parsed.format;
+
+    // If already rewritten to local assets, infer from extension.
+    const m = src.toLowerCase().match(/\.(png|jpg|svg)(?:\?|#|$)/);
+    if (m?.[1] && this.supportedAssetFormats.has(m[1])) return m[1] as any;
+
+    // Heuristic fallback: alt/name suffix (some teams name layers like "icon.svg" / "photo.jpg").
+    const alt = String((node.props as any)?.alt || "");
+    const nm = alt.trim().toLowerCase();
+    if (nm.endsWith(".svg")) return "svg";
+    if (nm.endsWith(".jpg") || nm.endsWith(".jpeg")) return "jpg";
+    return "png";
+  }
+
+  private collectFigmaAssetRequests(node: DSNode, out: Map<"png" | "jpg" | "svg", Set<string>>) {
     if (!node) return;
     if (node.kind === "element" && node.name === "img") {
       const id = node?.ref?.figmaNodeId ? String(node.ref.figmaNodeId) : "";
-      if (id) out.add(id);
+      if (id) {
+        const fmt = this.inferAssetFormatFromImgNode(node);
+        const set = out.get(fmt) || new Set<string>();
+        set.add(id);
+        out.set(fmt, set);
+      }
     }
-    for (const c of node.children || []) this.collectImageNodeIds(c, out);
+    for (const c of node.children || []) this.collectFigmaAssetRequests(c, out);
   }
 
   async resolveFigmaAssetUrls(dsRoot: DSRoot): Promise<void> {
     const fileKey = dsRoot?.meta?.fileKey;
     if (!fileKey) return;
 
-    const ids = new Set<string>();
-    this.collectImageNodeIds(dsRoot.tree, ids);
-    if (ids.size === 0) return;
-
-    const idList = Array.from(ids);
-    const chunks: string[][] = [];
-    for (let i = 0; i < idList.length; i += 50) chunks.push(idList.slice(i, i + 50));
+    const byFormat = new Map<"png" | "jpg" | "svg", Set<string>>();
+    this.collectFigmaAssetRequests(dsRoot.tree, byFormat);
+    if (byFormat.size === 0) return;
 
     const idToUrl = new Map<string, string>();
-    for (const chunk of chunks) {
-      try {
-        const r: any = await this.mcp.invokeTool("figma.getImages", {
-          fileKey,
-          ids: chunk,
-          format: "png",
-          scale: 2
-        });
-        const images = r?.images || {};
-        for (const [k, v] of Object.entries(images)) {
-          if (typeof v === "string" && v) idToUrl.set(k, v);
+    for (const [format, ids] of byFormat.entries()) {
+      const idList = Array.from(ids);
+      const chunks: string[][] = [];
+      for (let i = 0; i < idList.length; i += 50) chunks.push(idList.slice(i, i + 50));
+
+      for (const chunk of chunks) {
+        try {
+          const r: any = await this.mcp.invokeTool("figma.getImages", {
+            fileKey,
+            ids: chunk,
+            format,
+            scale: 2
+          });
+          const images = r?.images || {};
+          for (const [k, v] of Object.entries(images)) {
+            if (typeof v === "string" && v) idToUrl.set(`${format}|${k}`, v);
+          }
+        } catch {
+          // ignore chunk failures
         }
-      } catch {
-        // ignore chunk failures
       }
     }
 
@@ -1819,7 +1948,8 @@ export class CodegenService {
         const nodeId = node?.ref?.figmaNodeId ? String(node.ref.figmaNodeId) : "";
         const p = node.props || {};
         const src = String((p as any).src || "");
-        const next = nodeId ? idToUrl.get(nodeId) : undefined;
+        const fmt = this.inferAssetFormatFromImgNode(node);
+        const next = nodeId ? idToUrl.get(`${fmt}|${nodeId}`) : undefined;
         if (next && (src.startsWith("__FIGMA_NODE__") || src.startsWith("/assets/figma/") || !src)) {
           node.props = { ...p, src: next };
         }
@@ -1833,37 +1963,42 @@ export class CodegenService {
     const fileKey = dsRoot?.meta?.fileKey;
     if (!fileKey) return;
 
-    const ids = new Set<string>();
-    this.collectImageNodeIds(dsRoot.tree, ids);
-    if (ids.size === 0) return;
+    const byFormat = new Map<"png" | "jpg" | "svg", Set<string>>();
+    this.collectFigmaAssetRequests(dsRoot.tree, byFormat);
+    if (byFormat.size === 0) return;
 
     const assetRelDir = "public/assets/figma";
     const assetAbsDir = path.join(projectDir, assetRelDir);
     ensureDir(assetAbsDir);
 
-    const idList = Array.from(ids);
-    const chunks: string[][] = [];
-    for (let i = 0; i < idList.length; i += 50) chunks.push(idList.slice(i, i + 50));
-
     const idToUrl = new Map<string, string>();
-    for (const chunk of chunks) {
-      const r: any = await this.mcp.invokeTool("figma.getImages", {
-        fileKey,
-        ids: chunk,
-        format: "png",
-        scale: 2
-      });
-      const images = r?.images || {};
-      for (const [k, v] of Object.entries(images)) {
-        if (typeof v === "string" && v) idToUrl.set(k, v);
+    for (const [format, ids] of byFormat.entries()) {
+      const idList = Array.from(ids);
+      const chunks: string[][] = [];
+      for (let i = 0; i < idList.length; i += 50) chunks.push(idList.slice(i, i + 50));
+
+      for (const chunk of chunks) {
+        const r: any = await this.mcp.invokeTool("figma.getImages", {
+          fileKey,
+          ids: chunk,
+          format,
+          scale: 2
+        });
+        const images = r?.images || {};
+        for (const [k, v] of Object.entries(images)) {
+          if (typeof v === "string" && v) idToUrl.set(`${format}|${k}`, v);
+        }
       }
     }
 
-    for (const [nodeId, url] of idToUrl.entries()) {
+    for (const [key, url] of idToUrl.entries()) {
+      const bar = key.indexOf("|");
+      const format = (bar >= 0 ? key.slice(0, bar) : "png") as "png" | "jpg" | "svg";
+      const nodeId = bar >= 0 ? key.slice(bar + 1) : key;
       try {
         const resp = await axios.get(url, { responseType: "arraybuffer", timeout: 45000 });
         const safe = nodeId.replace(/[^a-zA-Z0-9._-]/g, "_");
-        fs.writeFileSync(path.join(assetAbsDir, `${safe}.png`), Buffer.from(resp.data));
+        fs.writeFileSync(path.join(assetAbsDir, `${safe}.${format}`), Buffer.from(resp.data));
       } catch {
         // ignore single asset failures
       }
@@ -1873,11 +2008,13 @@ export class CodegenService {
       if (!node) return;
       if (node.kind === "element" && node.name === "img") {
         const nodeId = node?.ref?.figmaNodeId ? String(node.ref.figmaNodeId) : "";
+        if (!nodeId) return;
         const safe = nodeId.replace(/[^a-zA-Z0-9._-]/g, "_");
         const p = node.props || {};
         const src = String((p as any).src || "");
+        const fmt = this.inferAssetFormatFromImgNode(node);
         if (!src || src.startsWith("__FIGMA_NODE__")) {
-          node.props = { ...p, src: `/assets/figma/${safe}.png` };
+          node.props = { ...p, src: `/assets/figma/${safe}.${fmt}` };
         }
       }
       for (const c of node.children || []) rewrite(c);
@@ -1888,15 +2025,14 @@ export class CodegenService {
   async generateZip(projectId: string, target: string, dsRoot: DSRoot): Promise<string> {
     const id = uuid().slice(0, 8);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), `a2ui-${projectId}-${id}-`));
-  
+
     await this.resolveFigmaAssets(dsRoot, dir);
-  
+
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
-  
+
     let files: Record<string, string> = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
 
-    // MIXED일 때만: ZIP 생성 직전에 GPT로 화면 컴포넌트(GeneratedScreen) 후처리
     if (this.shouldRefineMixed(dsRoot)) {
       if (t === "nuxt") {
         const key = "components/GeneratedScreen.vue";
@@ -1907,8 +2043,6 @@ export class CodegenService {
         }
       } else if (t === "vue") {
         this.logger.log("[MIXED] refining src/components/GeneratedScreen.vue (vue)");
-        // Vue(Vite) 출력은 기존 App.vue 안에 화면이 인라인으로 들어가므로,
-        // MIXED일 때는 화면을 GeneratedScreen으로 분리해서 GPT가 안전하게 화면만 리팩토링하도록 한다.
         const screenSfc = `<template>
   ${screen}
 </template>
@@ -1918,7 +2052,7 @@ export class CodegenService {
         files["src/components/GeneratedScreen.vue"] = refined;
         files["src/App.vue"] = `<template>
   <div class="min-h-screen bg-white text-slate-900">
-    <main class="max-w-4xl mx-auto p-6">
+    <main class="mx-auto flex justify-center">
       <GeneratedScreen />
       <details class="mt-10">
         <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
@@ -1935,18 +2069,18 @@ import diagnostics from "./generated/diagnostics.json";
 `;
       }
     }
-  
+
     files = {
       ...files,
       "README.md": buildReadmeMarkdown(t),
       "README_refactor.md": buildReadmeRefactorMarkdown(),
-      "manifest.json": buildManifestJson(dsRoot, t),
+      "manifest.json": buildManifestJson(dsRoot, t)
     };
-  
+
     for (const [rel, content] of Object.entries(files)) {
       writeFile(path.join(dir, rel), content);
     }
-  
+
     const zipPath = path.join(this.outDir, `${projectId}-${id}-${target}.zip`);
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipPath);
@@ -1957,20 +2091,19 @@ import diagnostics from "./generated/diagnostics.json";
       archive.directory(dir, false);
       archive.finalize();
     });
-  
+
     return zipPath;
   }
-  
 
   renderVueSources(dsRoot: DSRoot, target: string): Record<string, string> {
     const screen = renderNode(dsRoot.tree);
     const t = String(target || "nuxt").toLowerCase();
-  
+
     const base = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
-  
+
     return {
       ...base,
-      "README.md": buildReadmeMarkdown(t),
+      "README.md": buildReadmeMarkdown(t)
     };
-  }  
+  }
 }

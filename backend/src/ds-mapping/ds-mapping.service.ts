@@ -612,7 +612,17 @@ export class DsMappingService {
 
   private mapImage(n: any, policy: Policy, diagnostics: A2UIDiagnostic[], parentFlexDirection?: "row" | "column"): DSNode {
     const nodeId = n?.ref?.figmaNodeId ? String(n.ref.figmaNodeId) : "";
-    const placeholder = nodeId ? `__FIGMA_NODE__:${nodeId}` : "";
+    const fmt =
+      (n?.asset?.format && ["svg", "png", "jpg"].includes(String(n.asset.format)))
+        ? String(n.asset.format)
+        : (String(n?.name ?? "").toLowerCase().endsWith(".svg")
+            ? "svg"
+            : (String(n?.name ?? "").toLowerCase().endsWith(".jpg") || String(n?.name ?? "").toLowerCase().endsWith(".jpeg"))
+              ? "jpg"
+              : "png");
+    // NOTE: Figma node ids commonly contain ":" so we avoid ":" as a delimiter after the prefix.
+    // Format: __FIGMA_NODE__|<fmt>|<nodeId>
+    const placeholder = nodeId ? `__FIGMA_NODE__|${fmt}|${nodeId}` : "";
 
     // Preserve basic geometry in RAW mode so images don't collapse.
     const classes: string[] = ["object-cover"];
