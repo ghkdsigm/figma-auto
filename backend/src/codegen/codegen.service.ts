@@ -9,6 +9,72 @@ import type { DSRoot, DSNode } from "../ds-mapping/spec";
 import axios from "axios";
 import { McpClient } from "../mcp/mcp.client";
 
+function normalizeLineEndings(s: string): string {
+  return String(s || "").replace(/\r\n/g, "\n");
+}
+
+function trimRightLines(s: string): string {
+  return normalizeLineEndings(s)
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+$/g, ""))
+    .join("\n");
+}
+
+// Lightweight, dependency-free indentation for Vue <template> blocks.
+// Not a full HTML/Vue formatter, but keeps GeneratedScreen.vue readable and stable.
+function indentVueTemplateBlock(templateBlockFull: string, indentSize = 2): string {
+  const src = normalizeLineEndings(templateBlockFull);
+  const lines = src.split("\n");
+
+  // Find opening <template ...> line and closing </template>
+  const openIdx = lines.findIndex((l) => /<template\b/.test(l));
+  if (openIdx < 0) return templateBlockFull;
+  const closeIdx = (() => {
+    for (let i = lines.length - 1; i >= 0; i--) if (/<\/template>/.test(lines[i])) return i;
+    return -1;
+  })();
+  if (closeIdx < 0 || closeIdx <= openIdx) return templateBlockFull;
+
+  const openLine = lines[openIdx].trim();
+  const closeLine = lines[closeIdx].trim();
+
+  const inner = lines.slice(openIdx + 1, closeIdx);
+  const outInner: string[] = [];
+
+  let level = 0;
+  const step = " ".repeat(Math.max(0, indentSize));
+
+  for (const rawLine of inner) {
+    const line = rawLine.trim();
+    if (!line) {
+      outInner.push("");
+      continue;
+    }
+
+    // De-indent on closing tags first
+    const isClosing = /^<\/[A-Za-z]/.test(line) || /^<\/>/.test(line);
+    const isElseLike = /^(<\/template>)$/.test(line) || /^<template\b/.test(line);
+    if (isClosing && !isElseLike) level = Math.max(0, level - 1);
+
+    outInner.push(step.repeat(level) + line);
+
+    // Increase indent after opening tags (very naive but good enough for generated markup)
+    const isSelfClosing = /\/>$/.test(line);
+    const isComment = /^<!--/.test(line);
+    const isDoctype = /^<!DOCTYPE/i.test(line);
+    const opensTag = /^<[A-Za-z]/.test(line) && !isSelfClosing && !isComment && !isDoctype;
+    const closesSameLine = /<\/[A-Za-z][\w:-]*>\s*$/.test(line);
+    if (opensTag && !closesSameLine) level += 1;
+  }
+
+  return [openLine, ...outInner, closeLine].join("\n");
+}
+
+function formatVueSfcLight(sfc: string): string {
+  const src = trimRightLines(sfc);
+  return replaceInTemplateBlocks(src, (tpl) => indentVueTemplateBlock(tpl, 2));
+}
+
 function stripMarkdownCodeFences(s: string): string {
   const t = String(s || "").trim();
   if (!t) return "";
@@ -930,7 +996,9 @@ function ensureDir(p: string) {
 
 function writeFile(p: string, content: string) {
   ensureDir(path.dirname(p));
-  fs.writeFileSync(p, content, "utf-8");
+  const ext = path.extname(p).toLowerCase();
+  const out = ext === ".vue" ? formatVueSfcLight(content) : content;
+  fs.writeFileSync(p, out, "utf-8");
 }
 
 type ComponentSources = {
@@ -1634,6 +1702,8 @@ import diagnostics from "~/generated/diagnostics.json";
 @tailwind components;
 @tailwind utilities;
 
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap");
+
 :root{
   --ds-primary: #2563eb;
   --ds-danger: #dc2626;
@@ -1641,6 +1711,11 @@ import diagnostics from "~/generated/diagnostics.json";
   --ds-muted: #475569;
   --ds-surface: #ffffff;
   --ds-border: #e2e8f0;
+}
+
+html, body {
+  font-family: "Noto Sans KR", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
 }
 `,
     "app.vue": appVue,
@@ -1771,6 +1846,8 @@ export default defineConfig({
 @tailwind components;
 @tailwind utilities;
 
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap");
+
 :root{
   --ds-primary: #2563eb;
   --ds-danger: #dc2626;
@@ -1778,6 +1855,11 @@ export default defineConfig({
   --ds-muted: #475569;
   --ds-surface: #ffffff;
   --ds-border: #e2e8f0;
+}
+
+html, body {
+  font-family: "Noto Sans KR", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
 }
 `,
     "src/main.ts": `import { createApp } from "vue";
