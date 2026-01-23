@@ -1,0 +1,15 @@
+:80 {
+  encode gzip
+
+  # API: forward /api/* to NestJS (strip /api prefix)
+  handle_path /api/* {
+    reverse_proxy api:3000
+  }
+
+  # Web UI
+  handle {
+    reverse_proxy web:3001
+  }
+}
+
+
