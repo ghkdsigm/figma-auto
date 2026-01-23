@@ -347,7 +347,14 @@ function rgbaToHex(c: A2UIColor) {
   const r = Math.round(clamp01(c.r) * 255);
   const g = Math.round(clamp01(c.g) * 255);
   const b = Math.round(clamp01(c.b) * 255);
-  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  const a = clamp01(Number((c as any)?.a ?? 1));
+  const hex = `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  // Preserve alpha when present (CSS supports 8-digit hex: #RRGGBBAA).
+  if (Number.isFinite(a) && a < 1) {
+    const aa = Math.round(a * 255);
+    return `${hex}${aa.toString(16).padStart(2, "0")}`;
+  }
+  return hex;
 }
 
 function px(v: any): number | undefined {
