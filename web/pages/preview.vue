@@ -172,17 +172,31 @@
                     </div>
                   </div>
 
-                  <LoadingButton
-                    className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
-                    :loading="loading['copy:' + filePath]"
-                    :disabled="isBusy"
-                    @click="copySourceFile(filePath, fileContent)"
-                  >
-                    복사
-                  </LoadingButton>
+                  <div class="flex items-center gap-2">
+                    <LoadingButton
+                      className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200 disabled:opacity-60"
+                      :loading="loading['copy:' + filePath]"
+                      :disabled="isBusy"
+                      @click="copySourceFile(filePath, fileContent)"
+                    >
+                      복사
+                    </LoadingButton>
+
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white/80 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-slate-200"
+                      :aria-expanded="String(!!expandedSources[filePath])"
+                      @click="toggleSourceExpanded(filePath)"
+                    >
+                      {{ expandedSources[filePath] ? "접기" : "펼치기" }}
+                    </button>
+                  </div>
                 </div>
 
-                <pre class="bg-slate-950 p-4 text-xs text-slate-100 whitespace-pre-wrap overflow-auto">{{ fileContent }}</pre>
+                <pre
+                  v-if="expandedSources[filePath]"
+                  class="bg-slate-950 p-4 text-xs text-slate-100 whitespace-pre-wrap overflow-auto"
+                >{{ fileContent }}</pre>
               </div>
 
               <!-- copy toast is rendered globally (fixed) -->
@@ -195,7 +209,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, reactive } from "vue";
+import { computed, onMounted, ref, reactive, watch } from "vue";
 import { useHead } from "#app";
 import { useRoute } from "vue-router";
 import DsRenderer from "~/components/a2ui/DsRenderer.vue";
@@ -225,6 +239,9 @@ const error = ref<string>("");
 const root = ref<any>(null);
 const raw = ref<any>(null);
 const sources = ref<any>(null);
+
+// filePath -> expanded 여부 (기본: 접힘)
+const expandedSources = ref<Record<string, boolean>>({});
 
 const loading = reactive<Record<string, boolean>>({
   loadLatest: false,
@@ -258,6 +275,23 @@ const sourcesEntries = computed<[string, string][]>(() => {
   const s = sources.value || {};
   return Object.entries(s).map(([k, v]) => [k, String(v)]);
 });
+
+watch(
+  sourcesEntries,
+  (entries) => {
+    // 새로 들어온 파일도 기본 접힘으로 초기화 (기존 상태는 유지)
+    const next: Record<string, boolean> = { ...expandedSources.value };
+    for (const [filePath] of entries) {
+      if (next[filePath] === undefined) next[filePath] = false;
+    }
+    expandedSources.value = next;
+  },
+  { immediate: true }
+);
+
+function toggleSourceExpanded(filePath: string) {
+  expandedSources.value[filePath] = !expandedSources.value[filePath];
+}
 
 async function copyText(text: string) {
   // Prefer async Clipboard API, but fall back when it is blocked (permissions / insecure context)
