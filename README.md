@@ -60,6 +60,48 @@ docker compose up -d --build
 
 ---
 
+## 배포(운영) - 도메인 없이 서버 IP로 시작 (추천: 80포트 단일 공개)
+
+도메인 없이도 서버의 **공인 IP**로 접속해 운영할 수 있습니다. 이 모드는 `caddy`를 통해
+`http://<SERVER_IP>`로 접속하면 **web**을 제공하고, 브라우저의 API 호출은 같은 Origin의 `/api`로 프록시됩니다.
+
+### 1) 운영 환경변수(.env) 준비(필수)
+
+루트에 `.env` 파일을 만들고 최소 아래 값은 반드시 설정하세요(기본값 그대로면 보안상 위험합니다).
+
+```
+# 인증(필수)
+JWT_SECRET=CHANGE_ME_TO_A_LONG_RANDOM_STRING
+ADMIN_EMAIL=admin@company.local
+ADMIN_PASSWORD=CHANGE_ME_TO_A_STRONG_PASSWORD
+
+# (권장) 컨테이너 내부 통신 - 운영에서 깨지지 않도록 고정
+TOOLSERVER_URL=http://toolserver:4010
+
+# (선택) Figma Import 사용 시
+FIGMA_TOKEN=YOUR_FIGMA_PERSONAL_ACCESS_TOKEN
+FIGMA_API_BASE=https://api.figma.com
+
+# (선택) OpenAI refine 사용 시
+# OPENAI_API_KEY=...
+# OPENAI_MODEL=gpt-4o-mini
+```
+
+> 이 프로젝트는 **회원가입이 없고** 서버 시작 시 `ADMIN_EMAIL/ADMIN_PASSWORD` 계정이 DB에 없으면 자동 생성됩니다.
+
+### 2) 실행(서버에서)
+
+```
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+### 3) 접속
+
+- UI: `http://<SERVER_IP>/`
+- API(Swagger): `http://<SERVER_IP>/api/docs#/`
+
+---
+
 ## 기본 사용 흐름 (UI 기준)
 
 ### 1) 로그인
