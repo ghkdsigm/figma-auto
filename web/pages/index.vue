@@ -3,6 +3,42 @@
   <div
     class="min-h-[calc(100vh-72px)] py-10"
   >
+    <!-- Global loading overlay (full screen) -->
+    <div
+      v-if="globalLoading.active"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-6"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="w-full max-w-md rounded-3xl border border-white/20 bg-white/90 p-6 shadow-xl">
+        <div class="flex items-start gap-3">
+          <div class="mt-1">
+            <Spinner size="md" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-base font-semibold text-slate-900">
+              {{ globalLoading.title || "처리 중..." }}
+            </div>
+            <div v-if="globalLoading.detail" class="mt-1 text-sm text-slate-600">
+              {{ globalLoading.detail }}
+            </div>
+
+            <div v-if="globalLoading.progress !== null" class="mt-4">
+              <div class="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                <div
+                  class="h-full rounded-full bg-indigo-600 transition-[width] duration-300"
+                  :style="{ width: `${globalLoading.progress}%` }"
+                ></div>
+              </div>
+              <div class="mt-2 text-xs text-slate-500">
+                {{ Math.round(globalLoading.progress) }}%
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Background -->
     <div class="fixed inset-0 -z-10">
       <div class="absolute inset-0 bg-gradient-to-br from-slate-50 via-white to-indigo-50"></div>
@@ -525,6 +561,42 @@ const loading = reactive<Record<string, boolean>>({
   loadArtifacts: false,
 });
 
+const globalLoading = reactive<{
+  active: boolean;
+  title: string;
+  detail: string;
+  progress: number | null;
+  startedAt: number;
+}>({
+  active: false,
+  title: "",
+  detail: "",
+  progress: null,
+  startedAt: 0,
+});
+
+function startGlobalLoading(title: string, detail = "", progress: number | null = null) {
+  globalLoading.active = true;
+  globalLoading.title = title;
+  globalLoading.detail = detail;
+  globalLoading.progress = progress;
+  globalLoading.startedAt = Date.now();
+}
+
+function setGlobalLoading(detail?: string, progress?: number | null, title?: string) {
+  if (typeof title === "string") globalLoading.title = title;
+  if (typeof detail === "string") globalLoading.detail = detail;
+  if (typeof progress !== "undefined") globalLoading.progress = progress;
+}
+
+function stopGlobalLoading() {
+  globalLoading.active = false;
+  globalLoading.title = "";
+  globalLoading.detail = "";
+  globalLoading.progress = null;
+  globalLoading.startedAt = 0;
+}
+
 async function withLoading<T>(key: string, fn: () => Promise<T>) {
   if (loading[key]) return undefined as unknown as T;
   loading[key] = true;
@@ -634,12 +706,14 @@ async function importFigma() {
   const __key = "importFigma";
   return await withLoading(__key, async () => {
     latestError.value = "";
+    startGlobalLoading("Figma 노드 정보 가져오는 중...", "Figma에서 데이터를 불러오고 있어요.", 10);
 
     const fileKey = parsedFileKey.value.trim();
     const nodeId = parsedNodeId.value.trim();
 
     if (!fileKey) {
       latestError.value = "fileKey가 비어있어요. Figma URL 또는 fileKey를 입력하세요.";
+      stopGlobalLoading();
       return;
     }
 
@@ -652,8 +726,12 @@ async function importFigma() {
       body,
     });
 
+    setGlobalLoading("임포트 결과 반영 중...", 40);
     await new Promise((r) => setTimeout(r, 600));
     await refreshLatest();
+    setGlobalLoading("완료!", 100);
+    await new Promise((r) => setTimeout(r, 200));
+    stopGlobalLoading();
   });
 }
 
@@ -661,12 +739,17 @@ async function importSample() {
   const __key = "importSample";
   return await withLoading(__key, async () => {
     latestError.value = "";
+    startGlobalLoading("샘플 임포트 중...", "샘플 데이터를 불러오고 있어요.", 10);
     await $fetch(`${apiBase}/projects/${project.value.id}/import/sample`, {
       method: "POST",
       headers: authHeaders.value,
     });
+    setGlobalLoading("임포트 결과 반영 중...", 40);
     await new Promise((r) => setTimeout(r, 600));
     await refreshLatest();
+    setGlobalLoading("완료!", 100);
+    await new Promise((r) => setTimeout(r, 200));
+    stopGlobalLoading();
   });
 }
 
@@ -703,6 +786,7 @@ async function uploadJson() {
     if (!pickedJson.value) return;
 
     latestError.value = "";
+    startGlobalLoading("JSON 업로드 중...", "파일을 업로드하고 있어요.", 10);
 
     const form = new FormData();
     form.append("file", pickedJson.value);
@@ -717,11 +801,16 @@ async function uploadJson() {
 
     if (!res.ok) {
       latestError.value = await res.text();
+      stopGlobalLoading();
       return;
     }
 
+    setGlobalLoading("업로드 결과 반영 중...", 40);
     await new Promise((r) => setTimeout(r, 600));
     await refreshLatest();
+    setGlobalLoading("완료!", 100);
+    await new Promise((r) => setTimeout(r, 200));
+    stopGlobalLoading();
   });
 }
 
@@ -737,6 +826,9 @@ async function generate(target: "nuxt" | "vue") {
   const __key = target === "vue" ? "generateVue" : "generateNuxt";
   return await withLoading(__key, async () => {
     latestError.value = "";
+
+    const targetLabel = target === "vue" ? "Vue" : "Nuxt";
+    startGlobalLoading(`${targetLabel} 생성 중...`, "artifact 생성 대기 중이에요. 잠시만 기다려주세요.", 5);
 
     // 생성은 백엔드에서 Job 큐로 비동기 처리됩니다.
     // 기존에는 1.5초 후 artifacts를 1회만 새로고침해서, 생성이 느리면 목록이 갱신되지 않아
@@ -773,6 +865,10 @@ async function generate(target: "nuxt" | "vue") {
     const startedAt = Date.now();
 
     while (Date.now() - startedAt < timeoutMs) {
+      const elapsedMs = Date.now() - startedAt;
+      const pct = Math.min(95, Math.max(5, Math.floor((elapsedMs / timeoutMs) * 100)));
+      setGlobalLoading(`artifact 확인 중... (${Math.ceil(elapsedMs / 1000)}초)`, pct);
+
       const r: any = await $fetch(`${apiBase}/projects/${project.value.id}/artifacts`, {
         headers: authHeaders.value,
       });
@@ -783,10 +879,20 @@ async function generate(target: "nuxt" | "vue") {
         const id = String(a?.id || "");
         return id && !beforeIds.has(id);
       });
-      if (hasNew) return;
+      if (hasNew) {
+        setGlobalLoading("완료! 결과물을 불러왔어요.", 100);
+        await new Promise((r) => setTimeout(r, 250));
+        stopGlobalLoading();
+        return;
+      }
 
       await new Promise((res) => setTimeout(res, intervalMs));
     }
+
+    latestError.value = "결과물 생성이 지연되고 있어요. 잠시 후 다시 시도하거나 결과물 새로고침을 눌러주세요.";
+    setGlobalLoading("시간이 조금 더 걸리고 있어요.", 95);
+    await new Promise((r) => setTimeout(r, 400));
+    stopGlobalLoading();
   });
 }
 
