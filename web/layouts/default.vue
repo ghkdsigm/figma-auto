@@ -55,12 +55,59 @@
       <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         <slot />
       </main>
+
+      <!-- Scroll to top -->
+      <Transition
+        enter-active-class="transition duration-200 ease-out"
+        enter-from-class="opacity-0 translate-y-2 scale-95"
+        enter-to-class="opacity-100 translate-y-0 scale-100"
+        leave-active-class="transition duration-150 ease-in"
+        leave-from-class="opacity-100 translate-y-0 scale-100"
+        leave-to-class="opacity-0 translate-y-2 scale-95"
+      >
+        <button
+          v-if="showScrollTop"
+          type="button"
+          aria-label="맨 위로"
+          class="fixed bottom-6 right-6 z-40 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200"
+          @click="scrollToTop"
+        >
+          <svg viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
+            <path
+              d="M12 5l-7 7m7-7l7 7M12 5v14"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </Transition>
     </div>
   </template>
   
-  <script setup lang="ts">
+  <script setup>
   const { isAuthenticated, logout } = useAuth();
   const logoutLoading = ref(false);
+
+  const showScrollTop = ref(false);
+
+  function updateScrollTopVisibility() {
+    showScrollTop.value = window.scrollY > 240;
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  onMounted(() => {
+    updateScrollTopVisibility();
+    window.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
+  });
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('scroll', updateScrollTopVisibility);
+  });
   
   async function handleLogout() {
     logoutLoading.value = true;

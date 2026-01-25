@@ -325,3 +325,11 @@ div/span 구조를 공통 컴포넌트로만 치환할 것
 ```
 docker compose exec postgres psql -U company -d a2ui_codegen
 ```
+
+
+
+```
+docker builder prune -af
+docker buildx prune -af        
+docker compose build --no-cache api
+```

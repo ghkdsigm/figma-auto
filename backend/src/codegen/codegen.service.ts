@@ -1762,10 +1762,6 @@ function viteFiles(appHtml: string, dsRoot: DSRoot): Record<string, string> {
   <div class="min-h-screen bg-white text-slate-900">
     <main class="mx-auto flex justify-center">
       ${appHtml}
-      <details class="mt-10">
-        <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
-        <pre class="mt-3 text-xs whitespace-pre-wrap text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-4">{{ diagnostics }}</pre>
-      </details>
     </main>
   </div>
 </template>

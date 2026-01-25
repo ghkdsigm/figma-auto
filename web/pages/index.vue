@@ -162,7 +162,7 @@
               <!-- 1. Figma URL -->
               <div class="rounded-2xl border border-slate-200/70 bg-white/60 p-5 shadow-sm">
                 <div class="flex items-center justify-between gap-3 mb-4">
-                  <h3 class="text-base font-semibold text-slate-900">1) 피그마 URL 입력 방식</h3>
+                  <h3 class="text-base font-semibold text-slate-900">피그마 URL 입력 방식</h3>
                   <span class="text-xs text-slate-500">node-id 포함 가능</span>
                 </div>
 
@@ -213,7 +213,7 @@
               </div>
 
               <!-- 2. JSON 업로드 -->
-              <div class="rounded-2xl border border-slate-200/70 bg-white/60 p-5 shadow-sm">
+              <!-- <div class="rounded-2xl border border-slate-200/70 bg-white/60 p-5 shadow-sm">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   <div>
                     <h3 class="text-base font-semibold text-slate-900">2) JSON 파일 업로드 방식</h3>
@@ -306,7 +306,7 @@
                     </div>
                   </div>
                 </div>
-              </div>
+              </div> -->
             </div>
           </div>
         </section>
