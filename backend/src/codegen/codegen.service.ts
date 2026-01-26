@@ -856,6 +856,192 @@ function uniqPreserveOrder(list: string[]) {
   return out;
 }
 
+function normalizeNoiseClasses(classes: string[] | undefined): string[] | undefined {
+  const orig = (classes || []).filter(Boolean).map((c) => String(c).trim()).filter(Boolean);
+  if (!orig.length) return classes;
+
+  const hasFlowSensitive = (() => {
+    // layout/text-flow sensitive tokens: keep w-fit/h-fit if any of these exist
+    return orig.some((c) =>
+      c === "truncate"
+      || c === "text-ellipsis"
+      || /^whitespace-/.test(c)
+      || /^overflow(-[xy])?-/.test(c)
+      || c === "absolute"
+      || c === "fixed"
+      || c === "sticky"
+      || c === "grid"
+      || c === "table"
+      || /^inline(-|$)/.test(c)
+    );
+  })();
+
+  const hasFixedDims = (() => {
+    return orig.some((c) =>
+      /^w-\[\d+(?:\.\d+)?px\]$/.test(c)
+      || /^h-\[\d+(?:\.\d+)?px\]$/.test(c)
+      || /^max-w-/.test(c)
+    );
+  })();
+
+  const out: string[] = [];
+  for (const c of orig) {
+    // Rule 1: 0px noise classes
+    if (/^p[trbl]-\[0px\]$/.test(c)) continue;
+    if (/^gap(-[xy])?-\[0px\]$/.test(c)) continue;
+    if (/^rounded(-[trbl]{1,2})?-\[0px\]$/.test(c)) continue;
+    if (/^border(-[trbl]{1,2})?-\[0px\]$/.test(c)) continue;
+
+    // Rule 1: drop w-fit/h-fit by default (keep only when flow sensitive or combined with fixed dims)
+    if ((c === "w-fit" || c === "h-fit") && !(hasFlowSensitive || hasFixedDims)) continue;
+
+    out.push(c);
+  }
+
+  return uniqPreserveOrder(out);
+}
+
+function hasUnsafeWrapperProps(n: DSNode): boolean {
+  const props = n?.props || {};
+  for (const k of Object.keys(props)) {
+    const attr = toKebab(String(k || ""));
+    if (!attr) continue;
+    // Vue directives / event bindings / DOM identifiers: merging could change structure/behavior
+    if (attr === "ref" || attr === "key" || attr === "id") return true;
+    if (attr.startsWith("@")) return true;
+    if (attr.startsWith("v-")) return true;
+  }
+  return false;
+}
+
+function hasRiskyClassesForWrapperMerge(classes: string[] | undefined): boolean {
+  const list = (classes || []).filter(Boolean).map((c) => String(c).trim()).filter(Boolean);
+  if (!list.length) return false;
+
+  return list.some((c) =>
+    // position / stacking / transform
+    c === "relative"
+    || c === "absolute"
+    || c === "fixed"
+    || c === "sticky"
+    || /^z-/.test(c)
+    || c === "transform"
+    || c === "transform-gpu"
+    || c === "transform-none"
+    || /^translate-/.test(c)
+    || /^rotate-/.test(c)
+    || /^scale-/.test(c)
+    // overflow / visual isolation effects
+    || /^overflow(-[xy])?-/.test(c)
+    || c === "isolation"
+    || /^filter(-|$)/.test(c)
+    || /^backdrop-/.test(c)
+    // interaction / opacity
+    || /^pointer-events-/.test(c)
+    || /^opacity-/.test(c)
+    // shadow/ring are sensitive to nesting
+    || /^shadow(-|$)/.test(c)
+    || /^ring(-|$)/.test(c)
+    // pseudo variants / content utilities
+    || c.includes("before:")
+    || c.includes("after:")
+    || /(^|:)content-/.test(c)
+  );
+}
+
+function isParentSimpleWrapperClasses(parentClasses: string[] | undefined): boolean {
+  const list = (parentClasses || []).filter(Boolean).map((c) => String(c).trim()).filter(Boolean);
+  if (!list.length) return false;
+
+  // Strong container styles: never merge (too likely to change visual/click area)
+  if (list.some((c) => /^bg-/.test(c) || /^border(-|$)/.test(c) || /^p[trblxy]?(-|$)/.test(c))) return false;
+
+  const allowed = [
+    /^flex$/,
+    /^inline-flex$/,
+    /^flex-(row|col|row-reverse|col-reverse|wrap|nowrap|wrap-reverse)$/,
+    /^items-/,
+    /^justify-/,
+    /^content-/,
+    /^self-/,
+    /^place-items-/,
+    /^place-content-/,
+    /^gap(-[xy])?-/,
+    /^space-[xy]-/,
+    /^w-full$/,
+    /^h-full$/,
+    /^grow(-0)?$/,
+    /^shrink(-0)?$/,
+    /^basis-/,
+    /^order-/,
+    /^min-w-0$/,
+    /^min-h-0$/
+  ];
+
+  return list.every((c) => allowed.some((re) => re.test(c)));
+}
+
+function canMergeSingleChildDivWrapper(parent: DSNode, child: DSNode): boolean {
+  if (!parent || !child) return false;
+  if (parent.kind !== "element" || child.kind !== "element") return false;
+  if (String(parent.name || "") !== "div" || String(child.name || "") !== "div") return false;
+  if ((parent.children || []).length !== 1) return false;
+
+  // Safe conditions: any hit => disallow merge
+  if (hasUnsafeWrapperProps(parent) || hasUnsafeWrapperProps(child)) return false;
+  if (hasRiskyClassesForWrapperMerge(parent.classes) || hasRiskyClassesForWrapperMerge(child.classes)) return false;
+
+  // Parent must be a very simple wrapper (conservative allowlist)
+  if (!isParentSimpleWrapperClasses(parent.classes)) return false;
+
+  // If parent has border/bg/p- and child also has container styles, disallow (extra conservative)
+  const pCls = (parent.classes || []).filter(Boolean);
+  const cCls = (child.classes || []).filter(Boolean);
+  const parentHasContainer = pCls.some((c) => /^bg-/.test(String(c)) || /^border(-|$)/.test(String(c)) || /^p[trblxy]?(-|$)/.test(String(c)));
+  const childHasContainer = cCls.some((c) => /^bg-/.test(String(c)) || /^border(-|$)/.test(String(c)) || /^p[trblxy]?(-|$)/.test(String(c)));
+  if (parentHasContainer && childHasContainer) return false;
+
+  return true;
+}
+
+function mergeParentClassesIntoChild(parent: DSNode, child: DSNode): DSNode {
+  const p = normalizeNoiseClasses(parent.classes) || [];
+  const c = normalizeNoiseClasses(child.classes) || [];
+  // Parent first, child later => in Tailwind, child's conflicting tokens win (safer).
+  const merged = uniqPreserveOrder([...p, ...c]);
+  return {
+    ...child,
+    classes: merged
+  };
+}
+
+function postProcessTree(root: DSNode): DSNode {
+  const visit = (n: DSNode): DSNode => {
+    const kids = (n.children || []).map(visit);
+    let cur: DSNode = {
+      ...n,
+      classes: normalizeNoiseClasses(n.classes),
+      children: kids
+    };
+
+    // Rule 2 (core): single-child div wrapper merge, very conservative
+    while (
+      cur.kind === "element"
+      && String(cur.name || "") === "div"
+      && Array.isArray(cur.children)
+      && cur.children.length === 1
+      && cur.children[0]
+      && canMergeSingleChildDivWrapper(cur, cur.children[0])
+    ) {
+      cur = mergeParentClassesIntoChild(cur, cur.children[0]);
+    }
+
+    return cur;
+  };
+
+  return visit(root);
+}
+
 function buildResponsivePolicyCtx(root: DSNode, applyRootAndWrapper: boolean): ResponsivePolicyCtx {
   const classes = (root?.classes || []).filter(Boolean);
   const designWidthPx = parseArbitraryPxValue(classes.find((c) => /^w-\[\d+(?:\.\d+)?px\]$/.test(c)) || "", "w")
@@ -2467,6 +2653,9 @@ export class CodegenService {
       }
     }
 
+    // Post-process the node tree right before rendering (DOM-depth reduction + class cleanup).
+    dsRoot.tree = postProcessTree(dsRoot.tree);
+
     const screenCtx = buildResponsivePolicyCtx(dsRoot.tree, true);
     const screen = renderNode(dsRoot.tree, screenCtx);
     const t = String(target || "nuxt").toLowerCase();
@@ -2485,10 +2674,11 @@ export class CodegenService {
       for (const c of splitComponents) {
         // For split components: keep root/wrapper-specific rules off to avoid structural/layout drift,
         // but keep generic responsive fixes (padding/gap/large widths) active.
-        const compCtx = buildResponsivePolicyCtx(c.node, false);
-        const html = renderNode(c.node, compCtx);
+        const processedNode = postProcessTree(c.node);
+        const compCtx = buildResponsivePolicyCtx(processedNode, false);
+        const html = renderNode(processedNode, compCtx);
         const used = new Set<string>();
-        collectUsedSplitComponents(c.node, splitNameSet, used);
+        collectUsedSplitComponents(processedNode, splitNameSet, used);
         used.delete(c.componentName);
         const imports = Array.from(used)
           .sort()
@@ -2606,8 +2796,9 @@ import diagnostics from "./generated/diagnostics.json";
   }
 
   renderVueSources(dsRoot: DSRoot, target: string): Record<string, string> {
-    const screenCtx = buildResponsivePolicyCtx(dsRoot.tree, true);
-    const screen = renderNode(dsRoot.tree, screenCtx);
+    const processed = postProcessTree(dsRoot.tree);
+    const screenCtx = buildResponsivePolicyCtx(processed, true);
+    const screen = renderNode(processed, screenCtx);
     const t = String(target || "nuxt").toLowerCase();
 
     const base = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);

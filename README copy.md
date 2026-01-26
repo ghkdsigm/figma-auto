@@ -447,5 +447,5 @@ jdbc:postgresql://localhost:15432/a2ui_codegen
 
 
 
-#PSQL 들어가기
+#PSQL
 docker compose exec postgres psql -U company -d a2ui_codegen
