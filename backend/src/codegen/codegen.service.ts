@@ -822,16 +822,199 @@ function renderProps(props: Record<string, any> | undefined) {
   return out.length ? " " + out.join(" ") : "";
 }
 
+type ResponsivePolicyCtx = {
+  applyRootAndWrapper: boolean;
+  rootId: string;
+  wrapperId?: string;
+  designWidthPx?: number;
+  designHeightPx?: number;
+};
+
+function parseArbitraryPxValue(cls: string, key: string): number | undefined {
+  // key examples: "w", "h", "px", "pl", "pr", "gap", "gap-x", "gap-y", "max-w"
+  const re = new RegExp(`^${key}-\\[(\\d+(?:\\.\\d+)?)px\\]$`);
+  const m = cls.match(re);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function hasAnyPrefix(classes: string[], prefixes: string[]) {
+  return classes.some((c) => prefixes.some((p) => c === p || c.startsWith(p)));
+}
+
+function uniqPreserveOrder(list: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of list) {
+    const k = String(c || "").trim();
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(k);
+  }
+  return out;
+}
+
+function buildResponsivePolicyCtx(root: DSNode, applyRootAndWrapper: boolean): ResponsivePolicyCtx {
+  const classes = (root?.classes || []).filter(Boolean);
+  const designWidthPx = parseArbitraryPxValue(classes.find((c) => /^w-\[\d+(?:\.\d+)?px\]$/.test(c)) || "", "w")
+    ?? parseArbitraryPxValue(classes.find((c) => /^max-w-\[\d+(?:\.\d+)?px\]$/.test(c)) || "", "max-w");
+  const designHeightPx = parseArbitraryPxValue(classes.find((c) => /^h-\[\d+(?:\.\d+)?px\]$/.test(c)) || "", "h");
+
+  let wrapperId: string | undefined;
+  if (applyRootAndWrapper && root?.children && root.children.length && designWidthPx) {
+    const scoreChild = (n: DSNode) => {
+      const cls = (n?.classes || []).filter(Boolean);
+      const w = cls.map((c) => parseArbitraryPxValue(c, "w")).find((v) => v !== undefined);
+      const pads = cls
+        .map((c) => parseArbitraryPxValue(c, "px") ?? parseArbitraryPxValue(c, "pl") ?? parseArbitraryPxValue(c, "pr"))
+        .filter((v): v is number => typeof v === "number");
+      const maxPad = pads.length ? Math.max(...pads) : 0;
+
+      let score = 0;
+      if (w !== undefined) {
+        const diff = Math.abs(w - designWidthPx);
+        // Tight match to design width is a strong signal (e.g., 1920 wrapper)
+        score += Math.max(0, 12 - diff / 16);
+      }
+      if (maxPad >= 160) score += 20 + maxPad / 100;
+      else if (maxPad >= 80) score += 8 + maxPad / 100;
+      if ((n.children || []).length) score += Math.min(10, (n.children || []).length / 2);
+      if (String(n.name || "") === "div") score += 1;
+      return score;
+    };
+
+    let best: { id: string; score: number } | null = null;
+    for (const c of root.children) {
+      const score = scoreChild(c);
+      if (!best || score > best.score) best = { id: c.id, score };
+    }
+    if (best && best.score >= 10) wrapperId = best.id;
+  }
+
+  return {
+    applyRootAndWrapper,
+    rootId: String(root?.id || "root"),
+    wrapperId,
+    designWidthPx,
+    designHeightPx
+  };
+}
+
+function postProcessClassName(n: DSNode, classes: string[] | undefined, ctx: ResponsivePolicyCtx): string[] | undefined {
+  const orig = (classes || []).filter(Boolean);
+  if (!orig.length) return classes;
+
+  const isRoot = ctx.applyRootAndWrapper && n.id === ctx.rootId;
+  const isWrapper = ctx.applyRootAndWrapper && !!ctx.wrapperId && n.id === ctx.wrapperId;
+  const hasJustifyBetween = orig.includes("justify-between");
+
+  const out: string[] = [];
+  for (const c0 of orig) {
+    const c = String(c0 || "").trim();
+    if (!c) continue;
+
+    // Root policy: w-[DESIGN_WIDTHpx] -> w-full, h-[DESIGN_HEIGHTpx] -> min-h-screen
+    if (isRoot) {
+      const w = parseArbitraryPxValue(c, "w");
+      if (w !== undefined && ctx.designWidthPx !== undefined && Math.abs(w - ctx.designWidthPx) <= 1) {
+        if (!orig.includes("w-full")) out.push("w-full");
+        continue; // drop fixed root width
+      }
+      const h = parseArbitraryPxValue(c, "h");
+      if (h !== undefined && ctx.designHeightPx !== undefined && Math.abs(h - ctx.designHeightPx) <= 1) {
+        if (!orig.includes("min-h-screen") && !orig.includes("min-h-dvh")) out.push("min-h-screen");
+        continue; // drop fixed root height
+      }
+    }
+
+    // Wrapper policy: ensure centered constrained container (mx-auto w-full max-w-[DESIGN_WIDTHpx])
+    if (isWrapper) {
+      const w = parseArbitraryPxValue(c, "w");
+      if (w !== undefined && ctx.designWidthPx !== undefined && Math.abs(w - ctx.designWidthPx) <= 1) {
+        // drop fixed wrapper width; we'll re-add as max-w below
+        continue;
+      }
+    }
+
+    // Padding clamp policy: px/pl/pr-[Npx] -> clamp(16px,3vw,Npx) for large values
+    {
+      const px = parseArbitraryPxValue(c, "px");
+      if (px !== undefined && px >= 80) {
+        out.push(`px-[clamp(16px,3vw,${px}px)]`);
+        continue;
+      }
+      const pl = parseArbitraryPxValue(c, "pl");
+      if (pl !== undefined && pl >= 80) {
+        out.push(`pl-[clamp(16px,3vw,${pl}px)]`);
+        continue;
+      }
+      const pr = parseArbitraryPxValue(c, "pr");
+      if (pr !== undefined && pr >= 80) {
+        out.push(`pr-[clamp(16px,3vw,${pr}px)]`);
+        continue;
+      }
+    }
+
+    // justify-between + big gap: remove big gaps since justify-between already distributes spacing
+    {
+      const gap = parseArbitraryPxValue(c, "gap");
+      const gapx = parseArbitraryPxValue(c, "gap-x");
+      const gapy = parseArbitraryPxValue(c, "gap-y");
+      const g = gap ?? gapx ?? gapy;
+      const key = gap !== undefined ? "gap" : gapx !== undefined ? "gap-x" : gapy !== undefined ? "gap-y" : null;
+      if (g !== undefined && key) {
+        if (hasJustifyBetween && g >= 80) {
+          continue; // remove
+        }
+        if (g >= 80) {
+          out.push(`${key}-[clamp(16px,2vw,${g}px)]`);
+          continue;
+        }
+      }
+    }
+
+    // Large fixed width containers: w-[Npx] (N>=600) -> w-full max-w-[Npx]
+    {
+      const w = parseArbitraryPxValue(c, "w");
+      if (w !== undefined && w >= 600 && (n.children || []).length) {
+        // Avoid double-applying if already responsive-ish
+        if (!hasAnyPrefix(orig, ["w-full", "max-w-["])) {
+          out.push("w-full");
+          out.push(`max-w-[${w}px]`);
+          continue;
+        }
+      }
+    }
+
+    out.push(c);
+  }
+
+  // Wrapper additions (prepend so they don't get overridden by later width classes)
+  if (isWrapper && ctx.designWidthPx !== undefined) {
+    const add: string[] = [];
+    if (!out.includes("mx-auto")) add.push("mx-auto");
+    if (!out.includes("w-full")) add.push("w-full");
+    const mw = `max-w-[${ctx.designWidthPx}px]`;
+    if (!out.includes(mw)) add.push(mw);
+    return uniqPreserveOrder([...add, ...out]);
+  }
+
+  return uniqPreserveOrder(out);
+}
+
 function renderClasses(classes?: string[]) {
   const list = (classes || []).filter(Boolean);
   if (!list.length) return "";
   return ` class="${escapeAttr(list.join(" "))}"`;
 }
 
-function renderNode(n: DSNode): string {
+function renderNode(n: DSNode, ctx: ResponsivePolicyCtx): string {
   const tag = n.kind === "component" ? n.name : n.name;
   const props = renderProps(n.props);
-  const cls = renderClasses(n.classes);
+  const processedClasses = postProcessClassName(n, n.classes, ctx);
+  const cls = renderClasses(processedClasses);
 
   if (n.kind === "element" && n.props && typeof (n.props as any).text === "string" && (!n.children || !n.children.length)) {
     const text = String((n.props as any).text);
@@ -870,7 +1053,7 @@ function renderNode(n: DSNode): string {
   }
 
   if (tag === "BaseSelect") {
-    return `<BaseSelect${cls}${props}>${(n.children || []).map(renderNode).join("\n")}</BaseSelect>`;
+    return `<BaseSelect${cls}${props}>${(n.children || []).map((c) => renderNode(c, ctx)).join("\n")}</BaseSelect>`;
   }
 
   if (tag === "BaseCheckbox") {
@@ -898,7 +1081,7 @@ function renderNode(n: DSNode): string {
   }
 
   if (tag === "DropdownMenu") {
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<DropdownMenu${cls}${props}>${children ? "\n" + children + "\n" : ""}</DropdownMenu>`;
   }
 
@@ -907,7 +1090,7 @@ function renderNode(n: DSNode): string {
   }
 
   if (tag === "MenuList") {
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<MenuList${cls}${props}>${children ? "\n" + children + "\n" : ""}</MenuList>`;
   }
 
@@ -916,12 +1099,12 @@ function renderNode(n: DSNode): string {
     const restProps = { ...(n.props || {}) };
     delete (restProps as any).title;
     const p = renderProps(restProps);
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<ThumbnailCard${cls}${p} title="${escapeAttr(title)}">${children ? "\n" + children + "\n" : ""}</ThumbnailCard>`;
   }
 
   if (tag === "Carousel") {
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<Carousel${cls}${props}>${children ? "\n" + children + "\n" : ""}</Carousel>`;
   }
 
@@ -946,7 +1129,7 @@ function renderNode(n: DSNode): string {
     const restProps = { ...(n.props || {}) };
     delete (restProps as any).title;
     const p = renderProps(restProps);
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<Popup${cls}${p} title="${escapeAttr(title)}">${children ? "\n" + children + "\n" : ""}</Popup>`;
   }
 
@@ -967,7 +1150,7 @@ function renderNode(n: DSNode): string {
   }
 
   if (tag === "Tabs") {
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<Tabs${cls}${props}>${children ? "\n" + children + "\n" : ""}</Tabs>`;
   }
 
@@ -982,11 +1165,11 @@ function renderNode(n: DSNode): string {
   }
 
   if (tag === "UnsafeBox") {
-    const children = (n.children || []).map(renderNode).join("\n");
+    const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
     return `<UnsafeBox${cls}${props}>${children ? "\n" + children + "\n" : ""}</UnsafeBox>`;
   }
 
-  const children = (n.children || []).map(renderNode).join("\n");
+  const children = (n.children || []).map((c) => renderNode(c, ctx)).join("\n");
   return `<${tag}${cls}${props}>${children ? "\n" + children + "\n" : ""}</${tag}>`;
 }
 
@@ -2284,7 +2467,8 @@ export class CodegenService {
       }
     }
 
-    const screen = renderNode(dsRoot.tree);
+    const screenCtx = buildResponsivePolicyCtx(dsRoot.tree, true);
+    const screen = renderNode(dsRoot.tree, screenCtx);
     const t = String(target || "nuxt").toLowerCase();
 
     let files: Record<string, string> = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
@@ -2299,7 +2483,10 @@ export class CodegenService {
 
       // Write split component files first.
       for (const c of splitComponents) {
-        const html = renderNode(c.node);
+        // For split components: keep root/wrapper-specific rules off to avoid structural/layout drift,
+        // but keep generic responsive fixes (padding/gap/large widths) active.
+        const compCtx = buildResponsivePolicyCtx(c.node, false);
+        const html = renderNode(c.node, compCtx);
         const used = new Set<string>();
         collectUsedSplitComponents(c.node, splitNameSet, used);
         used.delete(c.componentName);
@@ -2344,10 +2531,6 @@ import GeneratedScreen from "./components/GeneratedScreen.vue";
   <div class="min-h-screen bg-white text-slate-900">
     <main class="mx-auto flex justify-center">
       <GeneratedScreen />
-      <details class="mt-10">
-        <summary class="cursor-pointer text-sm text-slate-600">Mapping diagnostics</summary>
-        <pre class="mt-3 text-xs whitespace-pre-wrap text-slate-700 bg-slate-50 border border-slate-200 rounded-lg p-4">{{ diagnostics }}</pre>
-      </details>
     </main>
   </div>
 </template>
@@ -2423,7 +2606,8 @@ import diagnostics from "./generated/diagnostics.json";
   }
 
   renderVueSources(dsRoot: DSRoot, target: string): Record<string, string> {
-    const screen = renderNode(dsRoot.tree);
+    const screenCtx = buildResponsivePolicyCtx(dsRoot.tree, true);
+    const screen = renderNode(dsRoot.tree, screenCtx);
     const t = String(target || "nuxt").toLowerCase();
 
     const base = t === "vue" ? viteFiles(screen, dsRoot) : nuxtFiles(screen, dsRoot);
