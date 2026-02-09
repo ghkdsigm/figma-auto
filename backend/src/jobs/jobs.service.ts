@@ -338,7 +338,23 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           orderBy: { createdAt: "desc" }
         });
 
-        if (!latestImport?.a2uiSpec) throw new Error("No import found");
+        if (!latestImport) throw new Error("No import found. Run import first.");
+
+        // New projects (or fast user clicks) can hit generate before NORMALIZE_A2UI finishes.
+        // In that case, derive a2uiSpec from rawJson on-demand so generation is robust.
+        const a2uiSpec =
+          (latestImport.a2uiSpec as any) || this.a2ui.fromFigma(latestImport.rawJson as any, latestImport.fileKey);
+
+        if (!latestImport.a2uiSpec) {
+          try {
+            await this.prisma.figmaImport.update({
+              where: { id: latestImport.id },
+              data: { a2uiSpec: a2uiSpec as any }
+            });
+          } catch {
+            // Best-effort: even if persistence fails, continue generating from computed a2uiSpec.
+          }
+        }
 
         let latestMap = await this.prisma.dsMap.findFirst({
           where: { projectId: jobData.projectId, importId: latestImport.id, policy },
@@ -346,7 +362,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         });
 
         if (!latestMap) {
-          const ds = this.dsMapping.map(latestImport.a2uiSpec as any, policy);
+          const ds = this.dsMapping.map(a2uiSpec as any, policy);
           latestMap = await this.prisma.dsMap.create({
             data: {
               projectId: jobData.projectId,
@@ -370,7 +386,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           data: {
             projectId: jobData.projectId,
             target: jobData.target,
-            a2uiSpec: latestImport.a2uiSpec as any,
+            a2uiSpec: a2uiSpec as any,
             dsSpec: latestMap.dsSpec as any,
             mappingPolicy: policy,
             outputZip: zipPath
